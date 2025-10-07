@@ -1,0 +1,178 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="utf-8" />
+  <meta
+    name="viewport"
+    content="width=device-width, initial-scale=1, viewport-fit=cover"
+  />
+  <title>Two-Tower Movie Recommender - Deep Learning Comparison</title>
+  <link rel="stylesheet" href="style.css" />
+</head>
+<body>
+  <header class="app-header">
+    <h1>Two-Tower Movie Recommender — Deep Learning Comparison</h1>
+    <p class="subtitle">MovieLens 100K-compatible • Baseline vs. Deep Learning (Two-Tower + MLP)</p>
+  </header>
+
+  <main class="container">
+    <!-- Data status / loader -->
+    <section id="load-status" class="status card" aria-live="polite">
+      <div class="spinner" aria-hidden="true"></div>
+      <div>
+        <h2>Loading dataset…</h2>
+        <p id="status-text">Fetching <code>users.dat</code>, <code>movies.dat</code>, and <code>ratings.dat</code> from this folder.</p>
+      </div>
+    </section>
+
+    <!-- Graceful fallback if files are not found -->
+    <section id="file-fallback" class="card hidden" aria-labelledby="file-fallback-title">
+      <h2 id="file-fallback-title">Couldn’t auto-load the dataset</h2>
+      <p>Please select your existing MovieLens files (standard format with <strong>::</strong> separators):</p>
+      <div class="file-grid">
+        <label class="file-label">
+          <span>users.dat</span>
+          <input type="file" id="users-file" accept=".dat,.txt" />
+        </label>
+        <label class="file-label">
+          <span>movies.dat</span>
+          <input type="file" id="movies-file" accept=".dat,.txt" />
+        </label>
+        <label class="file-label">
+          <span>ratings.dat</span>
+          <input type="file" id="ratings-file" accept=".dat,.txt" />
+        </label>
+      </div>
+      <button id="btn-load-files" class="btn primary">Load Selected Files</button>
+      <p class="hint">
+        Expected formats (MovieLens 100K/1M-style):<br />
+        <code>users.dat</code>: <em>UserID::Gender::Age::Occupation::Zip-code</em><br />
+        <code>movies.dat</code>: <em>MovieID::Title (Year)::Genres|Pipe|Separated</em><br />
+        <code>ratings.dat</code>: <em>UserID::MovieID::Rating::Timestamp</em>
+      </p>
+    </section>
+
+    <!-- Controls -->
+    <section class="controls card hidden" id="controls">
+      <div class="controls-grid">
+        <div>
+          <label for="user-select" class="lbl">Select User</label>
+          <select id="user-select" class="select" aria-label="User ID"></select>
+        </div>
+        <div class="user-info" id="user-info" aria-live="polite">
+          <div><strong>Gender:</strong> <span id="ui-gender">—</span></div>
+          <div><strong>Age:</strong> <span id="ui-age">—</span></div>
+          <div><strong>Occupation:</strong> <span id="ui-occupation">—</span></div>
+        </div>
+        <div class="actions">
+          <button id="btn-recommend" class="btn primary">Get Recommendations</button>
+          <button id="btn-random-user" class="btn">Random User</button>
+          <button id="btn-clear" class="btn subtle">Clear</button>
+        </div>
+      </div>
+      <div class="note">
+        Uses existing ratings as ground-truth. Relevant items are defined as ratings ≥ 4.
+      </div>
+    </section>
+
+    <!-- Results -->
+    <section class="panels">
+      <article class="panel card hidden" id="baseline-panel" aria-labelledby="baseline-title">
+        <h2 id="baseline-title">Baseline Model Recommendations</h2>
+        <p class="model-desc">
+          User-based collaborative filtering (cosine similarity, mean-centered). No explicit features.
+        </p>
+        <div class="table-wrapper">
+          <table aria-describedby="baseline-title">
+            <thead>
+              <tr>
+                <th scope="col">Rank</th>
+                <th scope="col">Movie Title</th>
+                <th scope="col">Predicted Rating</th>
+                <th scope="col">Genres</th>
+              </tr>
+            </thead>
+            <tbody id="baseline-tbody">
+              <!-- Filled by script -->
+            </tbody>
+          </table>
+        </div>
+      </article>
+
+      <article class="panel card hidden accent" id="dl-panel" aria-labelledby="dl-title">
+        <h2 id="dl-title">Deep Learning Model Recommendations</h2>
+        <p class="model-desc">
+          Two-Tower with embeddings + MLP (1 hidden layer), integrating user demographics and movie genres.
+        </p>
+        <div class="table-wrapper">
+          <table aria-describedby="dl-title">
+            <thead>
+              <tr>
+                <th scope="col">Rank</th>
+                <th scope="col">Movie Title</th>
+                <th scope="col">Predicted Rating</th>
+                <th scope="col">Genres</th>
+              </tr>
+            </thead>
+            <tbody id="dl-tbody">
+              <!-- Filled by script -->
+            </tbody>
+          </table>
+        </div>
+      </article>
+    </section>
+
+    <!-- Metrics -->
+    <section id="metrics" class="card hidden" aria-labelledby="metrics-title">
+      <h2 id="metrics-title">Performance Comparison (k = 10)</h2>
+      <div class="table-wrapper">
+        <table>
+          <thead>
+            <tr>
+              <th scope="col">Metric</th>
+              <th scope="col">Baseline</th>
+              <th scope="col">Deep Learning</th>
+              <th scope="col">Δ Improvement</th>
+            </tr>
+          </thead>
+          <tbody id="metrics-tbody">
+            <!-- Filled by script -->
+          </tbody>
+        </table>
+      </div>
+      <details class="architecture">
+        <summary>Model Architecture Details</summary>
+        <div class="arch-grid">
+          <div>
+            <h3>Baseline</h3>
+            <ul>
+              <li>User-based CF</li>
+              <li>Cosine similarity on mean-centered vectors</li>
+              <li>Neighborhood size: adaptive (top-N by similarity)</li>
+            </ul>
+          </div>
+          <div>
+            <h3>Deep Learning (Two-Tower)</h3>
+            <ul>
+              <li>User tower: user ID embedding ⊕ gender ⊕ age bucket ⊕ occupation embedding → linear</li>
+              <li>Item tower: movie ID embedding ⊕ genre multi-hot → MLP (hidden ReLU) → linear</li>
+              <li>Score: dot(user_tower, item_tower) → scaled to rating range</li>
+              <li>Training: mini-batch SGD on existing ratings (few epochs)</li>
+            </ul>
+          </div>
+        </div>
+      </details>
+    </section>
+  </main>
+
+  <footer class="app-footer">
+    <p>
+      Built for instructional purposes with existing MovieLens data (local files).
+      No external libraries. Fully client-side.
+    </p>
+  </footer>
+
+  <script src="data.js"></script>
+  <script src="script.js"></script>
+</body>
+</html>
