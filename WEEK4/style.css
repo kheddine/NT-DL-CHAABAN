@@ -171,4 +171,31 @@ tbody tr:hover{ background: rgba(90,165,255,.06) }
   background: #0b1328;
 }
 .file-label input{ width: 60% }
-.hint{ color: v
+.hint{ color: var(--muted); margin-top:8px; }
+
+.improve-pos{ color: var(--success); font-weight:700 }
+.improve-neg{ color: var(--danger); font-weight:700 }
+
+.app-footer{
+  text-align:center;
+  color: var(--muted);
+  padding: 28px 16px 42px;
+}
+
+/* Focus visibility for keyboard users */
+:focus-visible{ outline:none; box-shadow: var(--focus) }
+
+/* Responsive */
+@media (max-width: 1024px){
+  .controls-grid{ grid-template-columns: 1fr; }
+  .actions{ justify-content: flex-start }
+  .user-info{ grid-template-columns: 1fr 1fr 1fr; }
+  .panels{ grid-template-columns: 1fr; }
+  .arch-grid{ grid-template-columns: 1fr; }
+  .file-grid{ grid-template-columns: 1fr; }
+}
+@media (max-width: 768px){
+  body{ font-size: 15px }
+  thead th, tbody td{ padding: 9px 10px }
+  .user-info{ grid-template-columns: 1fr; }
+}
