@@ -1,0 +1,212 @@
+:root{
+  --bg: #0b1020;
+  --panel: #121831;
+  --panel-2: #0f1530;
+  --text: #e9eef9;
+  --muted: #b9c3de;
+  --brand: #6aa2ff;
+  --accent: #9d7bff;
+
+  /* Survival palette */
+  --survive: #2ecc71; /* green */
+  --die: #e74c3c;     /* red */
+
+  /* Other */
+  --ok: #2bd4bd;
+  --warn: #ffb347;
+
+  --radius: 16px;
+  --shadow: 0 10px 30px rgba(0,0,0,.35);
+}
+
+*,
+*::before,
+*::after { box-sizing: border-box; }
+
+html, body {
+  margin: 0;
+  padding: 0;
+  background: radial-gradient(1200px 800px at 10% 0%, #101736 0%, #0a1024 60%, #070b18 100%);
+  color: var(--text);
+  font-family: "Inter", system-ui, -apple-system, Segoe UI, Roboto, Ubuntu, "Helvetica Neue", Arial, "Apple Color Emoji", "Segoe UI Emoji";
+  line-height: 1.5;
+}
+
+.container {
+  width: min(1200px, 92vw);
+  margin: 0 auto;
+}
+
+.site-header {
+  border-bottom: 1px solid rgba(255,255,255,.06);
+  background: linear-gradient(180deg, rgba(255,255,255,.04), rgba(255,255,255,0));
+  position: sticky;
+  top: 0;
+  z-index: 10;
+  backdrop-filter: blur(8px);
+}
+
+.header-content {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  padding: 26px 0;
+}
+
+h1 { font-size: clamp(1.6rem, 1rem + 2vw, 2.4rem); margin: 0 0 4px; }
+h2 { font-size: 1.6rem; margin: 0 0 16px; }
+h3 { font-size: 1.05rem; margin: 0 0 10px; }
+p  { margin: 0; }
+
+.subtitle { color: var(--muted); }
+
+.badge {
+  display: inline-block;
+  background: rgba(106,162,255,.12);
+  color: #cfe0ff;
+  border: 1px solid rgba(106,162,255,.3);
+  padding: 6px 10px;
+  border-radius: 999px;
+  font-size: .85rem;
+  margin-left: 8px;
+}
+
+.section { padding: 26px 0 18px; }
+
+.grid {
+  display: grid;
+  gap: 16px;
+}
+
+.dashboard-grid {
+  grid-template-columns: repeat(12, 1fr);
+}
+
+.kpi, .filters { grid-column: span 3; }
+.kpi .kpi-value { font-weight: 700; font-size: 1.6rem; }
+.kpi .kpi-sub { color: var(--muted); margin-top: 4px; }
+
+.filters { grid-column: span 12; }
+@media (min-width: 900px){
+  .filters { grid-column: span 12; }
+}
+@media (min-width: 1100px){
+  .filters { grid-column: span 12; }
+}
+
+.viz-grid {
+  grid-template-columns: repeat(12, 1fr);
+}
+.viz-grid .card { grid-column: span 12; }
+.viz-grid .card.wide { grid-column: span 12; }
+@media (min-width: 900px){
+  .viz-grid .card { grid-column: span 6; }
+  .viz-grid .card.wide { grid-column: span 12; }
+}
+
+.card {
+  background: linear-gradient(180deg, var(--panel), var(--panel-2));
+  border: 1px solid rgba(255,255,255,.06);
+  border-radius: var(--radius);
+  box-shadow: var(--shadow);
+  padding: 16px 16px 14px;
+}
+
+.card h3 { color: #dfe7ff; }
+
+.chart-container {
+  position: relative;
+  height: 320px;
+}
+
+.kpi {
+  display: flex;
+  flex-direction: column;
+  justify-content: center;
+  min-height: 104px;
+}
+
+.filters .filters-grid {
+  display: grid;
+  grid-template-columns: repeat(4, 1fr);
+  gap: 10px;
+}
+
+label {
+  display: grid;
+  gap: 6px;
+  font-weight: 600;
+  color: #d0d7f2;
+  font-size: .92rem;
+}
+select {
+  width: 100%;
+  background: #0e1530;
+  border: 1px solid rgba(255,255,255,.1);
+  color: var(--text);
+  border-radius: 10px;
+  padding: 8px 10px;
+  min-height: 42px;
+}
+
+.filter-actions {
+  display: flex;
+  gap: 10px;
+  margin-top: 12px;
+}
+
+.btn {
+  appearance: none;
+  border: none;
+  padding: 10px 14px;
+  border-radius: 12px;
+  cursor: pointer;
+  font-weight: 600;
+  transition: transform .05s ease, background .2s ease, box-shadow .2s ease;
+}
+.btn:active { transform: translateY(1px); }
+
+.btn.primary {
+  background: linear-gradient(180deg, #6aa2ff, #4f86ff);
+  color: #071128;
+  box-shadow: 0 6px 16px rgba(106,162,255,.35);
+}
+.btn.primary:hover { box-shadow: 0 8px 22px rgba(106,162,255,.45); }
+
+.btn.ghost {
+  background: transparent;
+  color: var(--text);
+  border: 1px solid rgba(255,255,255,.16);
+}
+.btn.ghost:hover {
+  background: rgba(255,255,255,.05);
+}
+
+canvas {
+  width: 100% !important;
+  height: 320px !important;
+}
+
+/* Hover accents for cards */
+.card {
+  transition: border-color .2s ease, transform .08s ease;
+}
+.card:hover {
+  border-color: rgba(106,162,255,.32);
+}
+
+/* Footer */
+.site-footer {
+  border-top: 1px solid rgba(255,255,255,.06);
+  margin-top: 28px;
+  padding: 20px 0 30px;
+}
+.footer-content { color: var(--muted); }
+.small { font-size: .85rem; color: #98a6c5; }
+
+/* Data viz colors */
+.chart-green { color: var(--survive); }
+.chart-red   { color: var(--die); }
+
+/* Accessibility helpers */
+:focus-visible { outline: 2px solid var(--brand); outline-offset: 2px; }
