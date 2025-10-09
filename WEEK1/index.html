@@ -1,0 +1,200 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="utf-8" />
+  <meta
+    name="viewport"
+    content="width=device-width, initial-scale=1, maximum-scale=1"
+  />
+  <meta name="description" content="Titanic EDA Dashboard — What mattered most for survival?" />
+  <title>Titanic EDA — What Mattered Most?</title>
+
+  <!-- Fonts -->
+  <link rel="preconnect" href="https://fonts.googleapis.com" />
+  <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin />
+  <link
+    href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700&display=swap"
+    rel="stylesheet"
+  />
+
+  <!-- Styles -->
+  <link rel="stylesheet" href="style.css" />
+
+  <!-- Chart.js + plugins (matrix for heatmap, annotation, datalabels optional) -->
+  <script src="https://cdn.jsdelivr.net/npm/chart.js@4.4.3/dist/chart.umd.min.js"></script>
+  <script src="https://cdn.jsdelivr.net/npm/chartjs-chart-matrix@3.0.0"></script>
+
+  <!-- Data processing -->
+  <script defer src="data.js"></script>
+  <!-- Main analysis & UI -->
+  <script defer src="script.js"></script>
+</head>
+
+<body>
+  <header class="site-header">
+    <div class="container header-content">
+      <div>
+        <h1>Titanic EDA Dashboard</h1>
+        <p class="subtitle">Exploring what mattered most for passenger survival</p>
+      </div>
+      <div class="header-meta">
+        <span class="badge">Chart.js</span>
+        <span class="badge">Pure HTML/CSS/JS</span>
+        <span class="badge">GitHub Pages Ready</span>
+      </div>
+    </div>
+  </header>
+
+  <main>
+    <!-- Dashboard: Key Metrics + Filters -->
+    <section id="dashboard" class="container section">
+      <h2>Dashboard</h2>
+      <div class="grid dashboard-grid">
+        <div class="card kpi">
+          <h3>Overall Survival</h3>
+          <p class="kpi-value" id="kpi-overall">—</p>
+          <p class="kpi-sub" id="kpi-overall-n">—</p>
+        </div>
+        <div class="card kpi">
+          <h3>Most Important Factor</h3>
+          <p class="kpi-value" id="kpi-top-factor">—</p>
+          <p class="kpi-sub" id="kpi-top-factor-evidence">—</p>
+        </div>
+        <div class="card kpi">
+          <h3>Best Odds Group</h3>
+          <p class="kpi-value" id="kpi-best-group">—</p>
+          <p class="kpi-sub" id="kpi-best-group-rate">—</p>
+        </div>
+        <div class="card kpi">
+          <h3>Worst Odds Group</h3>
+          <p class="kpi-value" id="kpi-worst-group">—</p>
+          <p class="kpi-sub" id="kpi-worst-group-rate">—</p>
+        </div>
+
+        <div class="card filters">
+          <h3>Filters</h3>
+          <div class="filters-grid">
+            <label>
+              Class
+              <select id="filter-pclass" multiple>
+                <option value="1" selected>1st</option>
+                <option value="2" selected>2nd</option>
+                <option value="3" selected>3rd</option>
+              </select>
+            </label>
+            <label>
+              Sex
+              <select id="filter-sex" multiple>
+                <option value="male" selected>Male</option>
+                <option value="female" selected>Female</option>
+              </select>
+            </label>
+            <label>
+              Embarked
+              <select id="filter-embarked" multiple>
+                <option value="C" selected>Cherbourg (C)</option>
+                <option value="Q" selected>Queenstown (Q)</option>
+                <option value="S" selected>Southampton (S)</option>
+                <option value="Unknown" selected>Unknown</option>
+              </select>
+            </label>
+            <label>
+              Age Group
+              <select id="filter-age" multiple>
+                <option value="Child" selected>Child (0–12)</option>
+                <option value="Adult" selected>Adult (13–59)</option>
+                <option value="Senior" selected>Senior (60+)</option>
+              </select>
+            </label>
+          </div>
+          <div class="filter-actions">
+            <button id="btn-apply" class="btn primary">Apply</button>
+            <button id="btn-reset" class="btn ghost">Reset</button>
+          </div>
+        </div>
+      </div>
+    </section>
+
+    <!-- Visualizations -->
+    <section id="visualizations" class="container section">
+      <h2>Visualizations</h2>
+
+      <div class="grid viz-grid">
+        <!-- Survival rate bars by category -->
+        <div class="card">
+          <h3>Survival by Class</h3>
+          <canvas id="chart-pclass" aria-label="Survival by passenger class" role="img"></canvas>
+        </div>
+        <div class="card">
+          <h3>Survival by Sex</h3>
+          <canvas id="chart-sex" aria-label="Survival by sex" role="img"></canvas>
+        </div>
+        <div class="card">
+          <h3>Survival by Age Group</h3>
+          <canvas id="chart-age" aria-label="Survival by age group" role="img"></canvas>
+        </div>
+        <div class="card">
+          <h3>Survival by Fare Quartile</h3>
+          <canvas id="chart-fare" aria-label="Survival by fare quartile" role="img"></canvas>
+        </div>
+        <div class="card">
+          <h3>Survival by Embarkation Port</h3>
+          <canvas id="chart-embarked" aria-label="Survival by embarkation" role="img"></canvas>
+        </div>
+        <div class="card">
+          <h3>Survival by Family Size</h3>
+          <canvas id="chart-family" aria-label="Survival by family size" role="img"></canvas>
+        </div>
+        <div class="card">
+          <h3>Survival by Title</h3>
+          <canvas id="chart-title" aria-label="Survival by title" role="img"></canvas>
+        </div>
+
+        <!-- Age distribution histogram (Survived vs Died) -->
+        <div class="card wide">
+          <h3>Age Distribution by Outcome</h3>
+          <canvas id="chart-age-hist" aria-label="Age distribution histogram" role="img"></canvas>
+        </div>
+
+        <!-- Fare vs Survival scatter -->
+        <div class="card wide">
+          <h3>Fare vs Survival (jittered)</h3>
+          <canvas id="chart-fare-scatter" aria-label="Fare vs survival scatter" role="img"></canvas>
+        </div>
+
+        <!-- Correlation heatmap -->
+        <div class="card wide">
+          <h3>Correlation Heatmap</h3>
+          <canvas id="chart-heatmap" aria-label="Correlation heatmap" role="img"></canvas>
+        </div>
+
+        <!-- Interaction: Sex x Class -->
+        <div class="card wide">
+          <h3>Interaction: Sex × Class</h3>
+          <canvas id="chart-sex-class" aria-label="Interaction sex by class" role="img"></canvas>
+        </div>
+      </div>
+    </section>
+
+    <!-- Conclusions -->
+    <section id="conclusions" class="container section">
+      <h2>Conclusions</h2>
+      <div class="card">
+        <div id="conclusion-content">
+          <p>Loading analysis…</p>
+        </div>
+      </div>
+    </section>
+  </main>
+
+  <footer class="site-footer">
+    <div class="container footer-content">
+      <p>
+        Built with ❤️ using pure HTML/CSS/JS and Chart.js.
+        Drop this folder on GitHub Pages with the CSVs to run fully in the browser.
+      </p>
+      <p class="small">Data: Kaggle Titanic (train/test/gender_submission)</p>
+    </div>
+  </footer>
+</body>
+</html>
