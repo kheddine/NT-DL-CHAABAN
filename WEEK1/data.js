@@ -1,244 +1,251 @@
-/* data.js
- * Loads and prepares Titanic datasets directly in the browser.
- * Place train.csv, test.csv, gender_submission.csv alongside this file.
- * Exports: window.TitanicData = { loadData, getCategories }
- */
-
-(function () {
-  const CSV_URLS = {
-    train: "train.csv",
-    test: "test.csv",
-    gender: "gender_submission.csv",
-  };
-
-  // Basic CSV parser (handles quoted commas)
-  function parseCSV(text) {
-    const rows = [];
-    let row = [];
-    let cur = "";
-    let inQuotes = false;
-
-    function pushCell() {
-      row.push(cur.replace(/^"|"$/g, "").replace(/""/g, '"'));
-      cur = "";
-    }
-    function pushRow() {
-      rows.push(row);
-      row = [];
+=== FILE 3: data.js ===
+// Titanic Data Processing and Cleaning
+class TitanicDataProcessor {
+    constructor() {
+        this.combinedData = [];
+        this.cleanData = [];
     }
 
-    for (let i = 0; i < text.length; i++) {
-      const c = text[i];
-      if (c === '"') {
-        if (inQuotes && text[i + 1] === '"') {
-          cur += '"';
-          i++;
-        } else {
-          inQuotes = !inQuotes;
+    // Parse CSV data from the provided strings
+    parseCSV(csvText) {
+        const lines = csvText.trim().split('\n');
+        const headers = lines[0].split(',');
+        
+        return lines.slice(1).map(line => {
+            const values = [];
+            let current = '';
+            let inQuotes = false;
+            
+            for (let char of line) {
+                if (char === '"') {
+                    inQuotes = !inQuotes;
+                } else if (char === ',' && !inQuotes) {
+                    values.push(current);
+                    current = '';
+                } else {
+                    current += char;
+                }
+            }
+            values.push(current);
+            
+            const row = {};
+            headers.forEach((header, index) => {
+                row[header.trim()] = values[index] ? values[index].trim().replace(/^"|"$/g, '') : '';
+            });
+            return row;
+        });
+    }
+
+    // Combine all datasets
+    combineDatasets(trainCSV, testCSV, genderSubCSV) {
+        try {
+            // Parse training data
+            const trainData = this.parseCSV(trainCSV);
+            
+            // Parse test data and survival labels
+            const testData = this.parseCSV(testCSV);
+            const genderSubData = this.parseCSV(genderSubCSV);
+            
+            // Create a map of test passenger survival
+            const testSurvivalMap = {};
+            genderSubData.forEach(row => {
+                testSurvivalMap[row.PassengerId] = parseInt(row.Survived);
+            });
+            
+            // Combine test data with survival labels
+            const testDataWithSurvival = testData.map(passenger => ({
+                ...passenger,
+                Survived: testSurvivalMap[passenger.PassengerId] || null
+            }));
+            
+            // Combine all data
+            this.combinedData = [...trainData, ...testDataWithSurvival];
+            
+            console.log(`Combined ${this.combinedData.length} passenger records`);
+            return this.combinedData;
+            
+        } catch (error) {
+            console.error('Error combining datasets:', error);
+            throw error;
         }
-      } else if (c === "," && !inQuotes) {
-        pushCell();
-      } else if ((c === "\n" || c === "\r") && !inQuotes) {
-        if (cur.length || row.length) pushCell();
-        if (row.length) pushRow();
-      } else {
-        cur += c;
-      }
-    }
-    if (cur.length || row.length) {
-      pushCell();
-      if (row.length) pushRow();
-    }
-    const header = rows.shift();
-    const objects = rows.map((r) => {
-      const o = {};
-      header.forEach((h, idx) => (o[h] = r[idx] ?? ""));
-      return o;
-    });
-    return objects;
-  }
-
-  async function fetchCSV(url) {
-    const res = await fetch(url);
-    if (!res.ok) throw new Error(`Failed to load ${url} (${res.status})`);
-    const text = await res.text();
-    return parseCSV(text);
-  }
-
-  function toNum(v) {
-    if (v === undefined || v === null || v === "") return null;
-    const n = Number(v);
-    return Number.isFinite(n) ? n : null;
-  }
-
-  // Title extraction from Name
-  function extractTitle(name) {
-    if (!name) return "Unknown";
-    const m = name.match(/,\s*([^\.]+)\./);
-    if (!m) return "Unknown";
-    const raw = m[1].trim();
-    const map = {
-      "Mlle": "Miss",
-      "Ms": "Miss",
-      "Mme": "Mrs",
-      "Lady": "Royalty",
-      "Countess": "Royalty",
-      "Dona": "Royalty",
-      "Sir": "Royalty",
-      "Jonkheer": "Royalty",
-      "Don": "Royalty",
-      "Rev": "Clergy",
-      "Dr": "Dr",
-      "Col": "Military",
-      "Major": "Military",
-      "Capt": "Military",
-    };
-    return map[raw] || raw;
-  }
-
-  function quantile(sorted, q) {
-    const pos = (sorted.length - 1) * q;
-    const base = Math.floor(pos);
-    const rest = pos - base;
-    if (sorted[base + 1] !== undefined) {
-      return sorted[base] + rest * (sorted[base + 1] - sorted[base]);
-    } else {
-      return sorted[base];
-    }
-  }
-
-  function median(values) {
-    const arr = values.filter((v) => v !== null && v !== undefined).slice().sort((a, b) => a - b);
-    if (arr.length === 0) return null;
-    return quantile(arr, 0.5);
-  }
-
-  function createFareQuartile(fare, q1, q2, q3) {
-    if (fare === null) return "Unknown";
-    if (fare <= q1) return "Q1 (Lowest)";
-    if (fare <= q2) return "Q2";
-    if (fare <= q3) return "Q3";
-    return "Q4 (Highest)";
-  }
-
-  function ageGroup(age) {
-    if (age === null) return "Unknown";
-    if (age <= 12) return "Child";
-    if (age >= 60) return "Senior";
-    return "Adult";
-  }
-
-  function familySize(sibsp, parch) {
-    // Common definition includes passenger themselves; requirement says "from SibSp + Parch".
-    // We add +1 to reflect household size including the passenger (common in Titanic analyses).
-    const s = (sibsp ?? 0) + (parch ?? 0) + 1;
-    if (s <= 1) return "Solo (1)";
-    if (s <= 3) return "Small (2–3)";
-    if (s <= 5) return "Medium (4–5)";
-    return "Large (6+)";
-  }
-
-  function coalesceEmbarked(v) {
-    return v && v.trim() ? v.trim() : "Unknown";
-  }
-
-  function toIntOrNull(x) {
-    const n = parseInt(x, 10);
-    return Number.isFinite(n) ? n : null;
     }
 
-  async function loadData() {
-    // 1) Load CSVs
-    const [train, test, gender] = await Promise.all([
-      fetchCSV(CSV_URLS.train),
-      fetchCSV(CSV_URLS.test),
-      fetchCSV(CSV_URLS.gender),
-    ]);
+    // Clean and preprocess data
+    cleanAndPreprocess() {
+        if (this.combinedData.length === 0) {
+            throw new Error('No data available. Please combine datasets first.');
+        }
 
-    // 2) Merge test + gender_submission Survived labels by PassengerId
-    const testSurvivedMap = new Map(gender.map((g) => [toIntOrNull(g.PassengerId), toIntOrNull(g.Survived)]));
-    const fullTest = test.map((r) => ({
-      ...r,
-      Survived: toIntOrNull(testSurvivedMap.get(toIntOrNull(r.PassengerId))),
-    }));
+        this.cleanData = this.combinedData.map(passenger => {
+            const cleaned = { ...passenger };
+            
+            // Convert numeric fields
+            cleaned.PassengerId = parseInt(cleaned.PassengerId);
+            cleaned.Survived = cleaned.Survived !== null ? parseInt(cleaned.Survived) : null;
+            cleaned.Pclass = parseInt(cleaned.Pclass);
+            cleaned.Age = cleaned.Age ? parseFloat(cleaned.Age) : null;
+            cleaned.SibSp = parseInt(cleaned.SibSp);
+            cleaned.Parch = parseInt(cleaned.Parch);
+            cleaned.Fare = cleaned.Fare ? parseFloat(cleaned.Fare) : null;
+            
+            // Handle missing Age values (median imputation)
+            if (!cleaned.Age) {
+                const medianAge = this.calculateMedianAge();
+                cleaned.Age = medianAge;
+            }
+            
+            // Create Age groups
+            if (cleaned.Age <= 12) cleaned.AgeGroup = 'Child';
+            else if (cleaned.Age <= 59) cleaned.AgeGroup = 'Adult';
+            else cleaned.AgeGroup = 'Senior';
+            
+            // Create FamilySize
+            cleaned.FamilySize = cleaned.SibSp + cleaned.Parch + 1;
+            
+            // Create FamilyCategory
+            if (cleaned.FamilySize === 1) cleaned.FamilyCategory = 'Alone';
+            else if (cleaned.FamilySize <= 4) cleaned.FamilyCategory = 'Small';
+            else cleaned.FamilyCategory = 'Large';
+            
+            // Categorize Fare into quartiles
+            if (cleaned.Fare <= 7.91) cleaned.FareCategory = 'Low';
+            else if (cleaned.Fare <= 14.454) cleaned.FareCategory = 'Medium';
+            else if (cleaned.Fare <= 31) cleaned.FareCategory = 'High';
+            else cleaned.FareCategory = 'Very High';
+            
+            // Extract Title from Name
+            const titleMatch = cleaned.Name.match(/\s([A-Za-z]+)\./);
+            cleaned.Title = titleMatch ? titleMatch[1] : 'Unknown';
+            
+            // Simplify titles
+            if (['Mr', 'Miss', 'Mrs', 'Master'].includes(cleaned.Title)) {
+                // Keep as is
+            } else if (['Dr', 'Rev', 'Col', 'Major', 'Capt'].includes(cleaned.Title)) {
+                cleaned.Title = 'Professional';
+            } else {
+                cleaned.Title = 'Nobility';
+            }
+            
+            // Handle missing Embarked
+            if (!cleaned.Embarked || cleaned.Embarked === '') {
+                cleaned.Embarked = 'S'; // Most common port
+            }
+            
+            return cleaned;
+        });
+        
+        console.log(`Cleaned ${this.cleanData.length} passenger records`);
+        return this.cleanData;
+    }
 
-    // 3) Combine
-    const combinedRaw = [...train, ...fullTest];
+    // Calculate median age for imputation
+    calculateMedianAge() {
+        const ages = this.combinedData
+            .map(p => p.Age)
+            .filter(age => age && !isNaN(parseFloat(age)))
+            .map(age => parseFloat(age))
+            .sort((a, b) => a - b);
+        
+        const mid = Math.floor(ages.length / 2);
+        return ages.length % 2 !== 0 ? ages[mid] : (ages[mid - 1] + ages[mid]) / 2;
+    }
 
-    // 4) Convert fields & collect arrays for stats
-    const rows = combinedRaw.map((r) => {
-      const Age = toNum(r.Age);
-      const Fare = toNum(r.Fare);
-      return {
-        PassengerId: toIntOrNull(r.PassengerId),
-        Survived: toIntOrNull(r.Survived),  // 0/1
-        Pclass: toIntOrNull(r.Pclass),
-        Name: r.Name,
-        Sex: r.Sex ? r.Sex.trim().toLowerCase() : "unknown",
-        Age,
-        SibSp: toIntOrNull(r.SibSp),
-        Parch: toIntOrNull(r.Parch),
-        Ticket: r.Ticket,
-        Fare,
-        Cabin: r.Cabin,
-        Embarked: coalesceEmbarked(r.Embarked),
-        Source: r.hasOwnProperty("Survived") && r.Survived !== "" ? "train_or_test_with_label" : "unknown",
-      };
-    });
+    // Get survival statistics by factor
+    getSurvivalStatsByFactor(factor) {
+        const groups = {};
+        
+        this.cleanData.forEach(passenger => {
+            if (passenger.Survived === null) return;
+            
+            const groupValue = passenger[factor];
+            if (!groups[groupValue]) {
+                groups[groupValue] = {
+                    total: 0,
+                    survived: 0,
+                    percentage: 0
+                };
+            }
+            
+            groups[groupValue].total++;
+            if (passenger.Survived === 1) {
+                groups[groupValue].survived++;
+            }
+        });
+        
+        // Calculate percentages
+        Object.keys(groups).forEach(group => {
+            groups[group].percentage = (groups[group].survived / groups[group].total) * 100;
+        });
+        
+        return groups;
+    }
 
-    // 5) Median imputation for Age (across combined data)
-    const ageMedian = median(rows.map((r) => r.Age));
-    rows.forEach((r) => {
-      if (r.Age === null) r.Age = ageMedian;
-    });
+    // Get overall survival statistics
+    getOverallStats() {
+        const totalPassengers = this.cleanData.length;
+        const survivors = this.cleanData.filter(p => p.Survived === 1).length;
+        const survivalRate = (survivors / totalPassengers) * 100;
+        
+        return {
+            totalPassengers,
+            survivors,
+            survivalRate: Math.round(survivalRate * 10) / 10
+        };
+    }
 
-    // 6) Fare quartiles (compute from available fares)
-    const fareVals = rows.map((r) => r.Fare).filter((v) => v !== null).sort((a, b) => a - b);
-    const q1 = quantile(fareVals, 0.25);
-    const q2 = quantile(fareVals, 0.50);
-    const q3 = quantile(fareVals, 0.75);
+    // Get data for visualizations
+    getVisualizationData() {
+        const genderStats = this.getSurvivalStatsByFactor('Sex');
+        const classStats = this.getSurvivalStatsByFactor('Pclass');
+        const ageStats = this.getSurvivalStatsByFactor('AgeGroup');
+        const fareStats = this.getSurvivalStatsByFactor('FareCategory');
+        const embarkedStats = this.getSurvivalStatsByFactor('Embarked');
+        const familyStats = this.getSurvivalStatsByFactor('FamilyCategory');
+        const titleStats = this.getSurvivalStatsByFactor('Title');
+        
+        return {
+            gender: genderStats,
+            class: classStats,
+            age: ageStats,
+            fare: fareStats,
+            embarked: embarkedStats,
+            family: familyStats,
+            title: titleStats
+        };
+    }
+}
 
-    // 7) Feature engineering
-    rows.forEach((r) => {
-      r.Title = extractTitle(r.Name);
-      r.AgeGroup = ageGroup(r.Age);
-      r.FamilySize = familySize(r.SibSp ?? 0, r.Parch ?? 0);
-      r.FareQuartile = createFareQuartile(r.Fare, q1, q2, q3);
-    });
+// Create global data processor instance
+const dataProcessor = new TitanicDataProcessor();
 
-    // Some titles are rare — group long tail for clearer plots
-    const commonTitles = new Set(["Mr", "Mrs", "Miss", "Master", "Dr", "Military", "Clergy", "Royalty"]);
-    rows.forEach((r) => {
-      if (!commonTitles.has(r.Title)) r.Title = "Other";
-    });
+// Initialize data when the page loads
+function initializeData() {
+    try {
+        // Use the provided CSV data (embedded in the HTML)
+        const trainCSV = document.querySelector('[data-file="train.csv"]')?.textContent || '';
+        const testCSV = document.querySelector('[data-file="test.csv"]')?.textContent || '';
+        const genderSubCSV = document.querySelector('[data-file="gender_submission.csv"]')?.textContent || '';
+        
+        if (!trainCSV || !testCSV || !genderSubCSV) {
+            throw new Error('CSV data not found in the page');
+        }
+        
+        // Combine and clean data
+        dataProcessor.combineDatasets(trainCSV, testCSV, genderSubCSV);
+        dataProcessor.cleanAndPreprocess();
+        
+        return dataProcessor.cleanData;
+        
+    } catch (error) {
+        console.error('Error initializing data:', error);
+        // Fallback to sample data for demonstration
+        return generateSampleData();
+    }
+}
 
-    const fields = [
-      "PassengerId","Survived","Pclass","Sex","Age","AgeGroup","SibSp","Parch","FamilySize","Fare","FareQuartile","Embarked","Title"
-    ];
-
-    const categories = {
-      Pclass: ["1","2","3"],
-      Sex: ["male","female"],
-      AgeGroup: ["Child","Adult","Senior"],
-      FareQuartile: ["Q1 (Lowest)","Q2","Q3","Q4 (Highest)","Unknown"],
-      Embarked: ["C","Q","S","Unknown"],
-      FamilySize: ["Solo (1)", "Small (2–3)", "Medium (4–5)", "Large (6+)"],
-      Title: ["Mr","Mrs","Miss","Master","Dr","Military","Clergy","Royalty","Other"],
-    };
-
-    const meta = {
-      ageMedian,
-      fareQuantiles: { q1, q2, q3 },
-      n: rows.length,
-      nLabeled: rows.filter(r => r.Survived !== null).length
-    };
-
-    return { rows, fields, categories, meta };
-  }
-
-  function getCategories() {
-    return ["Pclass","Sex","AgeGroup","FareQuartile","Embarked","FamilySize","Title"];
-  }
-
-  window.TitanicData = { loadData, getCategories };
-})();
+// Fallback sample data generator (for demonstration)
+function generateSampleData() {
+    console.log('Using sample data for demonstration');
+    // This would generate sample data if real CSV parsing fails
+    return [];
+}
