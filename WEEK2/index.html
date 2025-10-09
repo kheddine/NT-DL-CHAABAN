@@ -1,266 +1,146 @@
 <!DOCTYPE html>
-<html>
+<html lang="en">
 <head>
-  <meta charset="utf-8" />
-  <title>Titanic Survival Classifier</title>
-  <script src="https://cdn.jsdelivr.net/npm/@tensorflow/tfjs@3.21.0/dist/tf.min.js"></script>
-  <script src="https://cdn.jsdelivr.net/npm/@tensorflow/tfjs-vis"></script>
+  <meta charset="UTF-8">
+  <title>Titanic Binary Classifier - TensorFlow.js</title>
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+
+  <!-- TensorFlow.js and tfjs-vis -->
+  <script src="https://cdn.jsdelivr.net/npm/@tensorflow/tfjs@latest"></script>
+  <script src="https://cdn.jsdelivr.net/npm/@tensorflow/tfjs-vis@latest"></script>
+  <script src="https://cdn.jsdelivr.net/npm/papaparse@5.4.1/papaparse.min.js"></script>
+
   <style>
-    body { font-family: sans-serif; margin: 20px; }
-    section { margin-bottom: 30px; }
-    table, th, td { border: 1px solid black; border-collapse: collapse; }
-    th, td { padding: 4px 8px; }
+    body {
+      font-family: "Segoe UI", Roboto, sans-serif;
+      margin: 0;
+      padding: 0;
+      background: #f5f6fa;
+      color: #222;
+    }
+    header {
+      background: #0d47a1;
+      color: white;
+      text-align: center;
+      padding: 15px 0;
+    }
+    main {
+      max-width: 900px;
+      margin: 20px auto;
+      padding: 10px;
+    }
+    section {
+      background: #fff;
+      margin-bottom: 20px;
+      padding: 20px;
+      border-radius: 8px;
+      box-shadow: 0 2px 6px rgba(0,0,0,0.1);
+    }
+    h2 {
+      border-left: 5px solid #1976d2;
+      padding-left: 10px;
+    }
+    button {
+      background-color: #1976d2;
+      color: white;
+      border: none;
+      padding: 10px 16px;
+      margin-top: 10px;
+      border-radius: 5px;
+      cursor: pointer;
+    }
+    button:disabled {
+      background-color: #aaa;
+      cursor: not-allowed;
+    }
+    input[type="file"] {
+      margin: 10px 5px;
+    }
+    table {
+      border-collapse: collapse;
+      width: 100%;
+      margin-top: 15px;
+    }
+    th, td {
+      border: 1px solid #ccc;
+      padding: 6px 8px;
+      text-align: left;
+    }
+    th {
+      background: #e3f2fd;
+    }
+    #roc-container {
+      margin-top: 15px;
+    }
+    #threshold-slider {
+      width: 100%;
+    }
+    pre {
+      background: #eee;
+      padding: 10px;
+      border-radius: 5px;
+      overflow-x: auto;
+    }
   </style>
 </head>
 <body>
-  <h1>Titanic Survival Classifier with TensorFlow.js</h1>
 
-  <section>
+<header>
+  <h1>Titanic Survival Classifier (TensorFlow.js)</h1>
+</header>
+
+<main>
+  <section id="data-load">
     <h2>1. Data Load</h2>
-    <div>
-      <label>Training Data (train.csv): <input type="file" id="train-file" accept=".csv" /></label><br/>
-      <label>Test Data (test.csv): <input type="file" id="test-file" accept=".csv" /></label><br/>
-      <button id="load-btn">Load Data</button>
-    </div>
+    <input type="file" id="train-file" accept=".csv">
+    <input type="file" id="test-file" accept=".csv">
+    <button id="load-btn">Load CSVs</button>
+    <div id="load-status"></div>
   </section>
 
-  <section>
-    <h2>2. Data Inspection</h2>
-    <button id="inspect-btn" disabled>Inspect Data</button>
-    <div id="inspect-area"></div>
-  </section>
-
-  <section>
-    <h2>3. Preprocessing</h2>
+  <section id="preprocessing">
+    <h2>2. Preprocessing</h2>
     <button id="preprocess-btn" disabled>Preprocess Data</button>
-    <div id="preproc-area"></div>
+    <div id="preprocess-info"></div>
   </section>
 
-  <section>
-    <h2>4. Model Setup</h2>
-    <button id="setup-btn" disabled>Setup Model</button>
-    <div id="model-summary"></div>
+  <section id="model">
+    <h2>3. Model Definition</h2>
+    <button id="model-btn" disabled>Define Model</button>
+    <pre id="model-summary"></pre>
   </section>
 
-  <section>
-    <h2>5. Training</h2>
+  <section id="training">
+    <h2>4. Training</h2>
     <button id="train-btn" disabled>Train Model</button>
     <div id="train-vis"></div>
   </section>
 
-  <section>
-    <h2>6. Evaluation Metrics</h2>
-    <button id="eval-btn" disabled>Evaluate</button>
-    <div id="eval-area"></div>
+  <section id="metrics">
+    <h2>5. Metrics (ROC & Confusion Matrix)</h2>
+    <button id="eval-btn" disabled>Evaluate Model</button>
+    <div id="roc-container"></div>
+    <input type="range" id="threshold-slider" min="0" max="1" step="0.01" value="0.5" />
+    <div id="metric-results"></div>
+  </section>
+
+  <section id="prediction">
+    <h2>6. Prediction</h2>
+    <button id="predict-btn" disabled>Predict Test Set</button>
+    <div id="predict-preview"></div>
+  </section>
+
+  <section id="export">
+    <h2>7. Export</h2>
+    <button id="export-btn" disabled>Export Predictions</button>
   </section>
 
   <section>
-    <h2>7. Prediction</h2>
-    <button id="predict-btn" disabled>Predict on Test Set</button>
-    <div id="predict-area"></div>
+    <h2>Deployment Notes</h2>
+    <p>Create a public GitHub repo, commit <code>index.html</code> and <code>app.js</code>, enable GitHub Pages (main branch / root), then test the app at your GitHub Pages URL.</p>
   </section>
+</main>
 
-  <section>
-    <h2>8. Export Results</h2>
-    <button id="export-btn" disabled>Export Predictions CSV</button>
-  </section>
-
-  <script>
-    // Globals
-    let trainData = null;
-    let testData = null;
-    let processedTrain = null;
-    let processedTest = null;
-    let model = null;
-    const CLASS_THRESHOLD = 0.5;
-
-    // Utility: parse CSV with commas inside quotes
-    function parseCsv(content) {
-      return tf.data.csv(
-        tf.util.toString(content),
-        {
-          hasHeader: true,
-          // Default delimiter comma, tf.data.csv handles quoted values
-        }
-      );
-    }
-
-    document.getElementById('load-btn').onclick = async () => {
-      const trainFile = document.getElementById('train-file').files[0];
-      const testFile = document.getElementById('test-file').files[0];
-      if (!trainFile || !testFile) {
-        alert('Please select both CSV files.');
-        return;
-      }
-      const [trainText, testText] = await Promise.all([
-        trainFile.text(),
-        testFile.text()
-      ]);
-      trainData = await parseCsv(trainText).toArray();
-      testData = await parseCsv(testText).toArray();
-      console.log('Loaded data:', trainData, testData);
-      document.getElementById('inspect-btn').disabled = false;
-      document.getElementById('preprocess-btn').disabled = false;
-      alert('Data loaded.');
-    };
-
-    document.getElementById('inspect-btn').onclick = () => {
-      const area = document.getElementById('inspect-area');
-      area.innerHTML = '';
-      if (!trainData) {
-        area.innerText = 'No train data loaded.';
-        return;
-      }
-      // Show first 5 rows
-      const sample = trainData.slice(0, 5);
-      const keys = Object.keys(sample[0]);
-      const table = document.createElement('table');
-      const headerRow = document.createElement('tr');
-      keys.forEach(k => {
-        const th = document.createElement('th');
-        th.innerText = k;
-        headerRow.appendChild(th);
-      });
-      table.appendChild(headerRow);
-      sample.forEach(row => {
-        const tr = document.createElement('tr');
-        keys.forEach(k => {
-          const td = document.createElement('td');
-          td.innerText = row[k];
-          tr.appendChild(td);
-        });
-        table.appendChild(tr);
-      });
-      area.appendChild(table);
-    };
-
-    document.getElementById('preprocess-btn').onclick = () => {
-      if (!trainData) {
-        alert('Load data first');
-        return;
-      }
-      // Preprocess both train & test
-      function process(arr, isTrain = true) {
-        return arr.map(row => {
-          // Example: convert Pclass, Sex, Age, SibSp, Parch, Fare, Embarked, etc.
-          return {
-            features: [
-              +row['Pclass'],
-              row['Sex'] === 'male' ? 1 : 0,
-              +row['Age'] || 0,
-              +row['SibSp'],
-              +row['Parch'],
-              +row['Fare'] || 0,
-              row['Embarked'] === 'S' ? 1 : (row['Embarked'] === 'C' ? 2 : 3)
-            ],
-            label: isTrain ? (+row['Survived']) : undefined,
-            passengerId: row['PassengerId']
-          };
-        });
-      }
-      processedTrain = process(trainData, true);
-      processedTest = process(testData, false);
-      document.getElementById('preproc-area').innerText =
-        `Processed ${processedTrain.length} train rows, ${processedTest.length} test rows.`;
-      document.getElementById('setup-btn').disabled = false;
-    };
-
-    document.getElementById('setup-btn').onclick = () => {
-      model = tf.sequential();
-      model.add(tf.layers.dense({ inputShape: [7], units: 16, activation: 'relu' }));
-      model.add(tf.layers.dense({ units: 1, activation: 'sigmoid' }));
-      model.compile({
-        optimizer: 'adam',
-        loss: 'binaryCrossentropy',
-        metrics: ['accuracy']
-      });
-      document.getElementById('model-summary').innerText =
-        model.summary();
-      document.getElementById('train-btn').disabled = false;
-    };
-
-    document.getElementById('train-btn').onclick = async () => {
-      const xs = tf.tensor2d(processedTrain.map(r => r.features));
-      const ys = tf.tensor2d(processedTrain.map(r => [r.label]));
-      const surface = { name: 'Loss & Accuracy', tab: 'Training' };
-      await model.fit(xs, ys, {
-        epochs: 20,
-        validationSplit: 0.2,
-        callbacks: tfvis.show.fitCallbacks(surface, [ 'loss', 'val_loss', 'acc', 'val_acc' ])
-      });
-      xs.dispose();
-      ys.dispose();
-      document.getElementById('eval-btn').disabled = false;
-    };
-
-    document.getElementById('eval-btn').onclick = () => {
-      const xs = tf.tensor2d(processedTrain.map(r => r.features));
-      const ys = processedTrain.map(r => r.label);
-      const predsTensor = model.predict(xs);
-      const preds = Array.from(predsTensor.dataSync()).map(p => p > CLASS_THRESHOLD ? 1 : 0);
-      xs.dispose();
-      predsTensor.dispose();
-
-      // Compute confusion matrix
-      const tp = preds.filter((p, i) => p === 1 && ys[i] === 1).length;
-      const tn = preds.filter((p, i) => p === 0 && ys[i] === 0).length;
-      const fp = preds.filter((p, i) => p === 1 && ys[i] === 0).length;
-      const fn = preds.filter((p, i) => p === 0 && ys[i] === 1).length;
-
-      const acc = (tp + tn) / ys.length;
-
-      const area = document.getElementById('eval-area');
-      area.innerHTML = `
-        <h3>Confusion Matrix</h3>
-        <table>
-          <tr><th></th><th>Pred = 0</th><th>Pred = 1</th></tr>
-          <tr><th>Actual = 0</th><td>${tn}</td><td>${fp}</td></tr>
-          <tr><th>Actual = 1</th><td>${fn}</td><td>${tp}</td></tr>
-        </table>
-        <p>Accuracy: ${acc.toFixed(4)}</p>
-      `;
-
-      document.getElementById('predict-btn').disabled = false;
-    };
-
-    document.getElementById('predict-btn').onclick = () => {
-      const xs = tf.tensor2d(processedTest.map(r => r.features));
-      const predsTensor = model.predict(xs);
-      const probs = Array.from(predsTensor.dataSync());
-      predsTensor.dispose();
-
-      const area = document.getElementById('predict-area');
-      let html = `<table><tr><th>PassengerId</th><th>PredictedSurvived (prob)</th></tr>`;
-      processedTest.forEach((r, i) => {
-        html += `<tr><td>${r.passengerId}</td><td>${probs[i].toFixed(4)}</td></tr>`;
-      });
-      html += `</table>`;
-      area.innerHTML = html;
-
-      document.getElementById('export-btn').disabled = false;
-    };
-
-    document.getElementById('export-btn').onclick = () => {
-      let csv = 'PassengerId,Survived\\n';
-      const xs = tf.tensor2d(processedTest.map(r => r.features));
-      const predsTensor = model.predict(xs);
-      const probs = Array.from(predsTensor.dataSync());
-      predsTensor.dispose();
-      xs.dispose();
-
-      processedTest.forEach((r, i) => {
-        const survived = probs[i] > CLASS_THRESHOLD ? 1 : 0;
-        csv += `${r.passengerId},${survived}\\n`;
-      });
-
-      const blob = new Blob([csv], { type: 'text/csv' });
-      const url = URL.createObjectURL(blob);
-      const a = document.createElement('a');
-      a.href = url;
-      a.download = 'predictions.csv';
-      a.click();
-      URL.revokeObjectURL(url);
-    };
-  </script>
+<script src="app.js"></script>
 </body>
 </html>
