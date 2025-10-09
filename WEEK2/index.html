@@ -2,145 +2,121 @@
 <html lang="en">
 <head>
   <meta charset="UTF-8">
-  <title>Titanic Binary Classifier - TensorFlow.js</title>
   <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>Titanic Binary Classifier – TensorFlow.js</title>
 
-  <!-- TensorFlow.js and tfjs-vis -->
+  <!-- TensorFlow.js + tfjs-vis -->
   <script src="https://cdn.jsdelivr.net/npm/@tensorflow/tfjs@latest"></script>
   <script src="https://cdn.jsdelivr.net/npm/@tensorflow/tfjs-vis@latest"></script>
-  <script src="https://cdn.jsdelivr.net/npm/papaparse@5.4.1/papaparse.min.js"></script>
+
+  <!-- App logic -->
+  <script defer src="app.js"></script>
 
   <style>
     body {
       font-family: "Segoe UI", Roboto, sans-serif;
-      margin: 0;
-      padding: 0;
-      background: #f5f6fa;
+      margin: 20px;
+      background: #fafafa;
       color: #222;
     }
-    header {
-      background: #0d47a1;
-      color: white;
+    h1 {
       text-align: center;
-      padding: 15px 0;
-    }
-    main {
-      max-width: 900px;
-      margin: 20px auto;
-      padding: 10px;
+      color: #0d47a1;
     }
     section {
       background: #fff;
-      margin-bottom: 20px;
+      margin-top: 25px;
       padding: 20px;
-      border-radius: 8px;
+      border-radius: 10px;
       box-shadow: 0 2px 6px rgba(0,0,0,0.1);
     }
-    h2 {
-      border-left: 5px solid #1976d2;
-      padding-left: 10px;
+    input[type="file"] {
+      margin-right: 10px;
     }
     button {
       background-color: #1976d2;
-      color: white;
+      color: #fff;
       border: none;
-      padding: 10px 16px;
-      margin-top: 10px;
+      padding: 8px 14px;
       border-radius: 5px;
       cursor: pointer;
+      margin-top: 10px;
     }
     button:disabled {
-      background-color: #aaa;
+      background-color: #999;
       cursor: not-allowed;
-    }
-    input[type="file"] {
-      margin: 10px 5px;
     }
     table {
       border-collapse: collapse;
       width: 100%;
-      margin-top: 15px;
+      margin-top: 10px;
     }
     th, td {
       border: 1px solid #ccc;
       padding: 6px 8px;
       text-align: left;
     }
-    th {
-      background: #e3f2fd;
-    }
-    #roc-container {
-      margin-top: 15px;
-    }
-    #threshold-slider {
-      width: 100%;
-    }
-    pre {
-      background: #eee;
-      padding: 10px;
-      border-radius: 5px;
-      overflow-x: auto;
+    th { background: #e3f2fd; }
+    canvas { max-width: 100%; }
+    @media (max-width: 700px) {
+      section { padding: 12px; }
     }
   </style>
 </head>
 <body>
+  <h1>Titanic Binary Classifier (TensorFlow.js)</h1>
 
-<header>
-  <h1>Titanic Survival Classifier (TensorFlow.js)</h1>
-</header>
-
-<main>
-  <section id="data-load">
-    <h2>1. Data Load</h2>
-    <input type="file" id="train-file" accept=".csv">
-    <input type="file" id="test-file" accept=".csv">
-    <button id="load-btn">Load CSVs</button>
-    <div id="load-status"></div>
+  <section id="data">
+    <h2>1 · Data Load & Inspection</h2>
+    <input type="file" id="trainFile" accept=".csv">
+    <input type="file" id="testFile" accept=".csv">
+    <button id="loadBtn">Load CSV Files</button>
+    <div id="dataInfo"></div>
+    <div id="preview"></div>
+    <div id="charts"></div>
   </section>
 
-  <section id="preprocessing">
-    <h2>2. Preprocessing</h2>
-    <button id="preprocess-btn" disabled>Preprocess Data</button>
-    <div id="preprocess-info"></div>
+  <section id="prep">
+    <h2>2 · Preprocessing</h2>
+    <button id="prepBtn" disabled>Run Preprocessing</button>
+    <div id="prepInfo"></div>
   </section>
 
   <section id="model">
-    <h2>3. Model Definition</h2>
-    <button id="model-btn" disabled>Define Model</button>
-    <pre id="model-summary"></pre>
+    <h2>3 · Model Definition</h2>
+    <button id="buildBtn" disabled>Build Model</button>
+    <pre id="modelSummary"></pre>
   </section>
 
-  <section id="training">
-    <h2>4. Training</h2>
-    <button id="train-btn" disabled>Train Model</button>
-    <div id="train-vis"></div>
+  <section id="train">
+    <h2>4 · Training</h2>
+    <button id="trainBtn" disabled>Start Training</button>
+    <div id="trainVis"></div>
   </section>
 
   <section id="metrics">
-    <h2>5. Metrics (ROC & Confusion Matrix)</h2>
-    <button id="eval-btn" disabled>Evaluate Model</button>
-    <div id="roc-container"></div>
-    <input type="range" id="threshold-slider" min="0" max="1" step="0.01" value="0.5" />
-    <div id="metric-results"></div>
+    <h2>5 · Metrics & Threshold Tuning</h2>
+    <button id="evalBtn" disabled>Compute ROC/AUC</button><br>
+    <label>Threshold (<span id="thVal">0.5</span>):</label>
+    <input type="range" id="thSlider" min="0" max="1" step="0.01" value="0.5" disabled>
+    <div id="metricPlots"></div>
   </section>
 
-  <section id="prediction">
-    <h2>6. Prediction</h2>
-    <button id="predict-btn" disabled>Predict Test Set</button>
-    <div id="predict-preview"></div>
+  <section id="predict">
+    <h2>6 · Prediction & Export</h2>
+    <button id="predBtn" disabled>Predict Test Data</button>
+    <button id="expBtn" disabled>Export CSV</button>
+    <div id="predInfo"></div>
   </section>
 
-  <section id="export">
-    <h2>7. Export</h2>
-    <button id="export-btn" disabled>Export Predictions</button>
-  </section>
-
-  <section>
+  <section id="deploy">
     <h2>Deployment Notes</h2>
-    <p>Create a public GitHub repo, commit <code>index.html</code> and <code>app.js</code>, enable GitHub Pages (main branch / root), then test the app at your GitHub Pages URL.</p>
+    <p>
+      Create a <strong>public GitHub repository</strong>, add both
+      <code>index.html</code> and <code>app.js</code>, commit to the
+      <em>main branch</em>, enable <strong>GitHub Pages</strong> (source = main / root),
+      then open your URL to test.
+    </p>
   </section>
-</main>
-
-<script src="app.js"></script>
 </body>
 </html>
