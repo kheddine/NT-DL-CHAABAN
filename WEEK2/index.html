@@ -1,122 +1,361 @@
 <!DOCTYPE html>
 <html lang="en">
 <head>
-  <meta charset="UTF-8">
-  <meta name="viewport" content="width=device-width, initial-scale=1.0">
-  <title>Titanic Binary Classifier – TensorFlow.js</title>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Titanic Survival Classifier - TensorFlow.js</title>
+    <script src="https://cdn.jsdelivr.net/npm/@tensorflow/tfjs@latest"></script>
+    <script src="https://cdn.jsdelivr.net/npm/@tensorflow/tfjs-vis@latest"></script>
+    <style>
+        * {
+            box-sizing: border-box;
+            margin: 0;
+            padding: 0;
+            font-family: 'Segoe UI', Tahoma, Geneva, Verdana, sans-serif;
+        }
 
-  <!-- TensorFlow.js + tfjs-vis -->
-  <script src="https://cdn.jsdelivr.net/npm/@tensorflow/tfjs@latest"></script>
-  <script src="https://cdn.jsdelivr.net/npm/@tensorflow/tfjs-vis@latest"></script>
+        body {
+            background: linear-gradient(135deg, #667eea 0%, #764ba2 100%);
+            min-height: 100vh;
+            padding: 20px;
+        }
 
-  <!-- App logic -->
-  <script defer src="app.js"></script>
+        .container {
+            max-width: 1200px;
+            margin: 0 auto;
+            background: white;
+            border-radius: 15px;
+            box-shadow: 0 20px 40px rgba(0,0,0,0.1);
+            overflow: hidden;
+        }
 
-  <style>
-    body {
-      font-family: "Segoe UI", Roboto, sans-serif;
-      margin: 20px;
-      background: #fafafa;
-      color: #222;
-    }
-    h1 {
-      text-align: center;
-      color: #0d47a1;
-    }
-    section {
-      background: #fff;
-      margin-top: 25px;
-      padding: 20px;
-      border-radius: 10px;
-      box-shadow: 0 2px 6px rgba(0,0,0,0.1);
-    }
-    input[type="file"] {
-      margin-right: 10px;
-    }
-    button {
-      background-color: #1976d2;
-      color: #fff;
-      border: none;
-      padding: 8px 14px;
-      border-radius: 5px;
-      cursor: pointer;
-      margin-top: 10px;
-    }
-    button:disabled {
-      background-color: #999;
-      cursor: not-allowed;
-    }
-    table {
-      border-collapse: collapse;
-      width: 100%;
-      margin-top: 10px;
-    }
-    th, td {
-      border: 1px solid #ccc;
-      padding: 6px 8px;
-      text-align: left;
-    }
-    th { background: #e3f2fd; }
-    canvas { max-width: 100%; }
-    @media (max-width: 700px) {
-      section { padding: 12px; }
-    }
-  </style>
+        header {
+            background: #2c3e50;
+            color: white;
+            padding: 30px;
+            text-align: center;
+        }
+
+        h1 {
+            font-size: 2.5em;
+            margin-bottom: 10px;
+        }
+
+        .subtitle {
+            font-size: 1.1em;
+            opacity: 0.8;
+        }
+
+        .main-content {
+            display: grid;
+            grid-template-columns: 1fr 1fr;
+            gap: 20px;
+            padding: 30px;
+        }
+
+        @media (max-width: 768px) {
+            .main-content {
+                grid-template-columns: 1fr;
+            }
+        }
+
+        .section {
+            background: #f8f9fa;
+            border-radius: 10px;
+            padding: 25px;
+            margin-bottom: 20px;
+            border-left: 5px solid #3498db;
+        }
+
+        .section h2 {
+            color: #2c3e50;
+            margin-bottom: 15px;
+            font-size: 1.4em;
+        }
+
+        .file-input-group {
+            margin-bottom: 15px;
+        }
+
+        label {
+            display: block;
+            margin-bottom: 8px;
+            font-weight: 600;
+            color: #34495e;
+        }
+
+        input[type="file"] {
+            width: 100%;
+            padding: 10px;
+            border: 2px dashed #bdc3c7;
+            border-radius: 8px;
+            background: #ecf0f1;
+        }
+
+        button {
+            background: #3498db;
+            color: white;
+            border: none;
+            padding: 12px 25px;
+            border-radius: 8px;
+            cursor: pointer;
+            font-size: 1em;
+            font-weight: 600;
+            transition: all 0.3s ease;
+            margin: 5px;
+        }
+
+        button:hover {
+            background: #2980b9;
+            transform: translateY(-2px);
+        }
+
+        button:disabled {
+            background: #bdc3c7;
+            cursor: not-allowed;
+            transform: none;
+        }
+
+        .button-group {
+            display: flex;
+            flex-wrap: wrap;
+            gap: 10px;
+            margin-top: 15px;
+        }
+
+        .metrics-display {
+            background: white;
+            padding: 15px;
+            border-radius: 8px;
+            border: 1px solid #e1e8ed;
+            margin-top: 15px;
+        }
+
+        .slider-container {
+            margin: 20px 0;
+        }
+
+        .slider-label {
+            display: flex;
+            justify-content: space-between;
+            margin-bottom: 10px;
+        }
+
+        input[type="range"] {
+            width: 100%;
+            height: 8px;
+            border-radius: 4px;
+            background: #ddd;
+            outline: none;
+        }
+
+        .status {
+            padding: 12px;
+            border-radius: 8px;
+            margin: 10px 0;
+            font-weight: 500;
+        }
+
+        .status.info {
+            background: #d4edda;
+            color: #155724;
+            border: 1px solid #c3e6cb;
+        }
+
+        .status.warning {
+            background: #fff3cd;
+            color: #856404;
+            border: 1px solid #ffeaa7;
+        }
+
+        .status.error {
+            background: #f8d7da;
+            color: #721c24;
+            border: 1px solid #f5c6cb;
+        }
+
+        .charts-container {
+            display: grid;
+            grid-template-columns: 1fr 1fr;
+            gap: 15px;
+            margin-top: 20px;
+        }
+
+        @media (max-width: 768px) {
+            .charts-container {
+                grid-template-columns: 1fr;
+            }
+        }
+
+        .chart {
+            background: white;
+            padding: 15px;
+            border-radius: 8px;
+            border: 1px solid #e1e8ed;
+            height: 300px;
+        }
+
+        footer {
+            background: #34495e;
+            color: white;
+            padding: 25px;
+            text-align: center;
+            margin-top: 30px;
+        }
+
+        .deployment-notes {
+            background: #fff3cd;
+            border: 1px solid #ffeaa7;
+            border-radius: 8px;
+            padding: 20px;
+            margin-top: 20px;
+        }
+
+        table {
+            width: 100%;
+            border-collapse: collapse;
+            margin: 10px 0;
+        }
+
+        th, td {
+            padding: 8px 12px;
+            text-align: left;
+            border: 1px solid #ddd;
+        }
+
+        th {
+            background-color: #f2f2f2;
+            font-weight: bold;
+        }
+
+        .data-preview {
+            max-height: 200px;
+            overflow-y: auto;
+            margin: 10px 0;
+        }
+
+        .evaluation-table {
+            margin: 15px 0;
+            background: white;
+            padding: 15px;
+            border-radius: 8px;
+            border: 1px solid #e1e8ed;
+        }
+    </style>
 </head>
 <body>
-  <h1>Titanic Binary Classifier (TensorFlow.js)</h1>
+    <div class="container">
+        <header>
+            <h1>🚢 Titanic Survival Classifier</h1>
+            <p class="subtitle">Binary Classification with TensorFlow.js - Runs Entirely in Your Browser</p>
+        </header>
 
-  <section id="data">
-    <h2>1 · Data Load & Inspection</h2>
-    <input type="file" id="trainFile" accept=".csv">
-    <input type="file" id="testFile" accept=".csv">
-    <button id="loadBtn">Load CSV Files</button>
-    <div id="dataInfo"></div>
-    <div id="preview"></div>
-    <div id="charts"></div>
-  </section>
+        <div class="main-content">
+            <!-- Left Column -->
+            <div class="left-column">
+                <!-- Data Load Section -->
+                <section class="section">
+                    <h2>📁 Data Load</h2>
+                    <div class="file-input-group">
+                        <label for="trainFile">Training Data (train.csv):</label>
+                        <input type="file" id="trainFile" accept=".csv">
+                    </div>
+                    <div class="file-input-group">
+                        <label for="testFile">Test Data (test.csv):</label>
+                        <input type="file" id="testFile" accept=".csv">
+                    </div>
+                    <button onclick="loadData()" id="loadBtn">Load & Inspect Data</button>
+                    <div id="dataStatus"></div>
+                </section>
 
-  <section id="prep">
-    <h2>2 · Preprocessing</h2>
-    <button id="prepBtn" disabled>Run Preprocessing</button>
-    <div id="prepInfo"></div>
-  </section>
+                <!-- Data Inspection Section -->
+                <section class="section">
+                    <h2>🔍 Data Inspection</h2>
+                    <div id="dataPreview"></div>
+                    <div id="dataStats"></div>
+                </section>
 
-  <section id="model">
-    <h2>3 · Model Definition</h2>
-    <button id="buildBtn" disabled>Build Model</button>
-    <pre id="modelSummary"></pre>
-  </section>
+                <!-- Preprocessing Section -->
+                <section class="section">
+                    <h2>⚙️ Preprocessing</h2>
+                    <div class="button-group">
+                        <button onclick="preprocessData()" id="preprocessBtn" disabled>Preprocess Data</button>
+                    </div>
+                    <div id="preprocessStatus"></div>
+                    <div id="featureInfo"></div>
+                </section>
 
-  <section id="train">
-    <h2>4 · Training</h2>
-    <button id="trainBtn" disabled>Start Training</button>
-    <div id="trainVis"></div>
-  </section>
+                <!-- Model Section -->
+                <section class="section">
+                    <h2>🧠 Model Architecture</h2>
+                    <button onclick="createModel()" id="modelBtn" disabled>Create Model</button>
+                    <div id="modelStatus"></div>
+                    <div id="modelSummary"></div>
+                </section>
+            </div>
 
-  <section id="metrics">
-    <h2>5 · Metrics & Threshold Tuning</h2>
-    <button id="evalBtn" disabled>Compute ROC/AUC</button><br>
-    <label>Threshold (<span id="thVal">0.5</span>):</label>
-    <input type="range" id="thSlider" min="0" max="1" step="0.01" value="0.5" disabled>
-    <div id="metricPlots"></div>
-  </section>
+            <!-- Right Column -->
+            <div class="right-column">
+                <!-- Training Section -->
+                <section class="section">
+                    <h2>🎯 Training</h2>
+                    <div class="button-group">
+                        <button onclick="trainModel()" id="trainBtn" disabled>Train Model</button>
+                        <button onclick="stopTraining()" id="stopBtn" disabled>Stop Training</button>
+                    </div>
+                    <div id="trainingStatus"></div>
+                    <div class="charts-container">
+                        <div class="chart" id="lossChart"></div>
+                        <div class="chart" id="accuracyChart"></div>
+                    </div>
+                </section>
 
-  <section id="predict">
-    <h2>6 · Prediction & Export</h2>
-    <button id="predBtn" disabled>Predict Test Data</button>
-    <button id="expBtn" disabled>Export CSV</button>
-    <div id="predInfo"></div>
-  </section>
+                <!-- Metrics Section -->
+                <section class="section">
+                    <h2>📊 Metrics & Evaluation</h2>
+                    <div class="slider-container">
+                        <div class="slider-label">
+                            <span>Classification Threshold:</span>
+                            <span id="thresholdValue">0.5</span>
+                        </div>
+                        <input type="range" id="thresholdSlider" min="0" max="1" step="0.01" value="0.5" oninput="updateThreshold(this.value)">
+                    </div>
+                    <div id="metricsDisplay"></div>
+                    <div id="evaluationTable" class="evaluation-table"></div>
+                    <button onclick="evaluateModel()" id="evaluateBtn" disabled>Evaluate Model</button>
+                </section>
 
-  <section id="deploy">
-    <h2>Deployment Notes</h2>
-    <p>
-      Create a <strong>public GitHub repository</strong>, add both
-      <code>index.html</code> and <code>app.js</code>, commit to the
-      <em>main branch</em>, enable <strong>GitHub Pages</strong> (source = main / root),
-      then open your URL to test.
-    </p>
-  </section>
+                <!-- Prediction & Export Section -->
+                <section class="section">
+                    <h2>🔮 Prediction & Export</h2>
+                    <div class="button-group">
+                        <button onclick="predictTestData()" id="predictBtn" disabled>Predict Test Data</button>
+                        <button onclick="exportSubmission()" id="exportBtn" disabled>Export Submission CSV</button>
+                        <button onclick="exportProbabilities()" id="probBtn" disabled>Export Probabilities CSV</button>
+                        <button onclick="saveModel()" id="saveBtn" disabled>Save Model</button>
+                    </div>
+                    <div id="predictionStatus"></div>
+                    <div id="predictionResults"></div>
+                </section>
+            </div>
+        </div>
+
+        <!-- Deployment Notes -->
+        <footer>
+            <div class="deployment-notes">
+                <h3>🚀 Deployment Notes</h3>
+                <p>To deploy this app on GitHub Pages:</p>
+                <ol>
+                    <li>Create a public GitHub repository</li>
+                    <li>Commit both index.html and app.js files</li>
+                    <li>Enable GitHub Pages in repository settings (main branch, root folder)</li>
+                    <li>Your app will be available at: https://[your-username].github.io/[repository-name]</li>
+                </ol>
+            </div>
+            <p style="margin-top: 15px;">Titanic Survival Classifier - Built with TensorFlow.js</p>
+        </footer>
+    </div>
+
+    <script src="app.js"></script>
 </body>
 </html>
