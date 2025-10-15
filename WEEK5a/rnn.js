@@ -1,46 +1,83 @@
 // rnn.js
-// Defines and trains the RNN-based binary classification model.
+// Defines and trains a multi-output RNN for binary up/down classification (10 stocks × 3 days).
 
-export class StockRNN {
+export class RNNModel {
   constructor(inputShape, outputSize) {
-    this.model = this.buildModel(inputShape, outputSize);
+    this.model = null;
+    this.inputShape = inputShape;
+    this.outputSize = outputSize;
   }
 
-  buildModel(inputShape, outputSize) {
-    const model = tf.sequential();
-    model.add(tf.layers.simpleRNN({ units: 64, returnSequences: false, inputShape }));
-    model.add(tf.layers.dropout({ rate: 0.3 }));
-    model.add(tf.layers.dense({ units: 64, activation: 'relu' }));
-    model.add(tf.layers.dense({ units: outputSize, activation: 'sigmoid' }));
-    model.compile({
+  buildModel() {
+    this.model = tf.sequential({
+      layers: [
+        tf.layers.simpleRNN({ units: 64, returnSequences: true, inputShape: this.inputShape }),
+        tf.layers.dropout({ rate: 0.2 }),
+        tf.layers.simpleRNN({ units: 32 }),
+        tf.layers.dropout({ rate: 0.2 }),
+        tf.layers.dense({ units: this.outputSize, activation: 'sigmoid' })
+      ]
+    });
+
+    this.model.compile({
       optimizer: tf.train.adam(0.001),
       loss: 'binaryCrossentropy',
-      metrics: ['binaryAccuracy'],
+      metrics: ['binaryAccuracy']
     });
-    return model;
+    return this.model;
   }
 
-  async train(X_train, y_train, epochs = 10, batchSize = 32, onEpochEnd = null) {
+  async train(X_train, y_train, X_test, y_test, epochs = 30, batchSize = 32) {
+    if (!this.model) this.buildModel();
+    await tf.setBackend('webgl');
+    await tf.ready();
+
     return await this.model.fit(X_train, y_train, {
       epochs,
       batchSize,
-      shuffle: false,
-      validationSplit: 0.1,
+      validationData: [X_test, y_test],
       callbacks: {
         onEpochEnd: async (epoch, logs) => {
-          if (onEpochEnd) onEpochEnd(epoch, logs);
+          const progress = document.getElementById("trainingProgress");
+          const status = document.getElementById("status");
+          if (progress) progress.value = ((epoch + 1) / epochs) * 100;
+          if (status)
+            status.textContent =
+              `Epoch ${epoch + 1}/${epochs} | loss: ${logs.loss.toFixed(4)} | acc: ${(logs.binaryAccuracy * 100).toFixed(2)}%`;
           await tf.nextFrame();
-        },
-      },
+        }
+      }
     });
-  }
-
-  async evaluate(X_test, y_test) {
-    const result = await this.model.evaluate(X_test, y_test);
-    return { loss: result[0].dataSync()[0], accuracy: result[1].dataSync()[0] };
   }
 
   predict(X) {
     return this.model.predict(X);
+  }
+
+  evaluatePerStock(yTrue, yPred, symbols, horizon = 3) {
+    const trueArr = yTrue.arraySync();
+    const predArr = yPred.arraySync();
+    const results = {}, details = {};
+    symbols.forEach((s, si) => {
+      let correct = 0, total = 0;
+      const preds = [];
+      for (let i = 0; i < trueArr.length; i++) {
+        for (let h = 0; h < horizon; h++) {
+          const idx = si * horizon + h;
+          const t = trueArr[i][idx];
+          const p = predArr[i][idx] > 0.5 ? 1 : 0;
+          preds.push({ true: t, pred: p, correct: t === p });
+          if (t === p) correct++;
+          total++;
+        }
+      }
+      results[s] = correct / total;
+      details[s] = preds;
+    });
+    return { stockAccuracies: results, stockPredictions: details };
+  }
+
+  dispose() {
+    if (this.model) this.model.dispose();
   }
 }
