@@ -1,0 +1,24 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8">
+  <title>Stock Prediction Demo (RNN)</title>
+  <script src="https://cdn.jsdelivr.net/npm/@tensorflow/tfjs@4.16.0/dist/tf.min.js"></script>
+  <script src="https://cdn.jsdelivr.net/npm/chart.js"></script>
+  <style>
+    body { font-family: Arial; padding: 20px; background: #fafafa; }
+    #log { white-space: pre-line; background: #eee; padding: 10px; margin-top: 10px; height: 150px; overflow-y: auto; }
+    #chartContainer { margin-top: 20px; }
+  </style>
+</head>
+<body>
+  <h1>📈 Stock Prediction Demo (RNN)</h1>
+  <p>Upload your CSV (Date,Symbol,Open,High,Low,Close for 10 stocks):</p>
+  <input type="file" id="fileInput" accept=".csv" />
+  <button id="trainBtn" disabled>Train Model</button>
+  <pre id="log"></pre>
+  <div id="chartContainer"></div>
+
+  <script type="module" src="./app.js"></script>
+</body>
+</html>
