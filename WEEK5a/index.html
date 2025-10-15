@@ -3,21 +3,31 @@
 <head>
   <meta charset="UTF-8">
   <title>Stock Prediction Demo (RNN)</title>
-  <script src="https://cdn.jsdelivr.net/npm/@tensorflow/tfjs@4.16.0/dist/tf.min.js"></script>
+  <script src="https://cdn.jsdelivr.net/npm/@tensorflow/tfjs@4.22.0/dist/tf.min.js"></script>
   <script src="https://cdn.jsdelivr.net/npm/chart.js"></script>
   <style>
     body { font-family: Arial; padding: 20px; background: #fafafa; }
-    #log { white-space: pre-line; background: #eee; padding: 10px; margin-top: 10px; height: 150px; overflow-y: auto; }
-    #chartContainer { margin-top: 20px; }
+    .container { max-width: 1200px; margin: auto; }
+    #log { white-space: pre-line; background: #eee; padding: 10px; height: 150px; overflow-y: auto; }
+    .stock-chart { margin: 20px 0; }
   </style>
 </head>
 <body>
-  <h1>📈 Stock Prediction Demo (RNN)</h1>
-  <p>Upload your CSV (Date,Symbol,Open,High,Low,Close for 10 stocks):</p>
-  <input type="file" id="fileInput" accept=".csv" />
-  <button id="trainBtn" disabled>Train Model</button>
-  <pre id="log"></pre>
-  <div id="chartContainer"></div>
+  <div class="container">
+    <h1>📈 Multi-Stock RNN Prediction Demo</h1>
+    <p>Upload your CSV (Date, Symbol, Open, High, Low, Close for 10 stocks):</p>
+    <input type="file" id="csvFile" accept=".csv" />
+    <button id="trainBtn" disabled>Train Model</button>
+    <button id="predictBtn" disabled>Run Prediction</button>
+    <p id="status">Waiting for file...</p>
+    <progress id="trainingProgress" value="0" max="100" style="width:100%"></progress>
+
+    <h3>Stock Accuracy Ranking</h3>
+    <canvas id="accuracyChart"></canvas>
+
+    <h3>Prediction Timelines</h3>
+    <div id="timelineContainer"></div>
+  </div>
 
   <script type="module" src="./app.js"></script>
 </body>
