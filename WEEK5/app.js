@@ -1,251 +1,348 @@
-import * as tf from 'https://cdn.jsdelivr.net/npm/@tensorflow/tfjs@latest/dist/tf.min.js';
-import { DataLoader } from './data-loader.js';
-import { RNNModel } from './rnn.js';
-
+// app.js
 class StockPredictionApp {
     constructor() {
         this.dataLoader = new DataLoader();
-        this.model = new RNNModel();
-        this.isTraining = false;
-        this.symbols = [];
-        this.predictions = null;
-        this.initializeUI();
-    }
-
-    initializeUI() {
-        // File input handler
-        document.getElementById('csvFile').addEventListener('change', (e) => {
-            this.handleFileUpload(e.target.files[0]);
-        });
-
-        // Train button handler
-        document.getElementById('trainBtn').addEventListener('click', () => {
-            this.startTraining();
-        });
-
-        // Initialize charts
-        this.initializeCharts();
-    }
-
-    async handleFileUpload(file) {
-        if (!file) return;
+        this.model = null;
+        this.trainingData = null;
+        this.evaluationResults = null;
         
+        this.initializeUI();
+        this.setupEventListeners();
+    }
+
+    // Initialize UI components
+    initializeUI() {
+        this.csvFileInput = document.getElementById('csvFile');
+        this.trainBtn = document.getElementById('trainBtn');
+        this.predictBtn = document.getElementById('predictBtn');
+        this.trainingProgress = document.getElementById('trainingProgress');
+        this.statusElement = document.getElementById('status');
+        
+        this.accuracyChart = null;
+        this.timelineChart = null;
+    }
+
+    // Set up event listeners
+    setupEventListeners() {
+        this.csvFileInput.addEventListener('change', (e) => this.onCSVUpload(e));
+        this.trainBtn.addEventListener('click', () => this.onTrain());
+        this.predictBtn.addEventListener('click', () => this.onPredict());
+    }
+
+    // Handle CSV file upload
+    async onCSVUpload(event) {
+        const file = event.target.files[0];
+        if (!file) return;
+
+        this.updateStatus('Loading and processing CSV data...');
+        this.trainBtn.disabled = true;
+        this.predictBtn.disabled = true;
+
         try {
-            document.getElementById('status').textContent = 'Loading CSV file...';
-            await this.dataLoader.loadCSV(file);
-            this.dataLoader.normalizeData();
-            this.dataLoader.createSamples();
-            this.symbols = this.dataLoader.getSymbols();
-            
-            document.getElementById('status').textContent = 'Data loaded successfully!';
-            document.getElementById('trainBtn').disabled = false;
+            this.trainingData = await this.dataLoader.processData(file);
+            this.updateStatus(`Data loaded successfully! ${this.trainingData.X_train.shape[0]} training samples prepared.`);
+            this.trainBtn.disabled = false;
         } catch (error) {
-            document.getElementById('status').textContent = `Error: ${error.message}`;
-            console.error(error);
+            this.updateStatus(`Error: ${error.message}`, true);
+            console.error('CSV processing error:', error);
         }
     }
 
-    async startTraining() {
-        if (this.isTraining) return;
-        
-        this.isTraining = true;
-        document.getElementById('trainBtn').disabled = true;
-        document.getElementById('status').textContent = 'Training model...';
-        
-        try {
-            // Build model
-            this.model.buildModel();
-            
-            // Set up epoch callback for UI updates
-            this.model.onEpochEnd = (epoch, logs) => {
-                document.getElementById('status').textContent = 
-                    `Epoch ${epoch + 1}: Loss = ${logs.loss.toFixed(4)}, Accuracy = ${logs.acc.toFixed(4)}`;
-            };
+    // Handle model training
+    async onTrain() {
+        if (!this.trainingData) {
+            this.updateStatus('Please load data first!', true);
+            return;
+        }
 
-            // Train model
+        this.updateStatus('Initializing model...');
+        this.trainBtn.disabled = true;
+        this.predictBtn.disabled = true;
+        
+        const inputShape = [this.trainingData.X_train.shape[1], this.trainingData.X_train.shape[2]];
+        const outputSize = this.trainingData.symbols.length;
+        
+        this.model = new RNN_GRU_Model(inputShape, outputSize);
+        this.model.createModel();
+        
+        this.updateStatus('Starting model training...');
+        this.trainingProgress.classList.remove('hidden');
+        this.trainingProgress.value = 0;
+
+        try {
             await this.model.train(
-                this.dataLoader.X_train, 
-                this.dataLoader.y_train, 
-                this.dataLoader.X_test, 
-                this.dataLoader.y_test,
-                30,  // epochs
-                32   // batchSize
+                this.trainingData.X_train,
+                this.trainingData.y_train,
+                this.trainingData.X_val,
+                this.trainingData.y_val,
+                {
+                    onEpochEnd: (epochInfo) => {
+                        const progress = Math.round(epochInfo.progress);
+                        this.trainingProgress.value = progress;
+                        this.updateStatus(
+                            `Epoch ${epochInfo.epoch}/50 - Loss: ${epochInfo.loss.toFixed(4)} - Acc: ${(epochInfo.accuracy * 100).toFixed(2)}%` +
+                            (epochInfo.valLoss ? ` - Val Loss: ${epochInfo.valLoss.toFixed(4)} - Val Acc: ${(epochInfo.valAccuracy * 100).toFixed(2)}%` : '')
+                        );
+                    },
+                    onTrainEnd: (history) => {
+                        this.trainingProgress.classList.add('hidden');
+                        const finalEpoch = history[history.length - 1];
+                        this.updateStatus(
+                            `Training completed! Final accuracy: ${(finalEpoch.accuracy * 100).toFixed(2)}%` +
+                            (finalEpoch.val_accuracy ? `, Validation accuracy: ${(finalEpoch.val_accuracy * 100).toFixed(2)}%` : '')
+                        );
+                        this.predictBtn.disabled = false;
+                        
+                        // Save model weights
+                        this.model.saveModel();
+                    }
+                }
+            );
+        } catch (error) {
+            this.updateStatus(`Training error: ${error.message}`, true);
+            console.error('Training error:', error);
+            this.trainBtn.disabled = false;
+        }
+    }
+
+    // Handle predictions
+    async onPredict() {
+        if (!this.model || !this.trainingData) {
+            this.updateStatus('Please train the model first!', true);
+            return;
+        }
+
+        this.updateStatus('Making predictions...');
+        this.predictBtn.disabled = true;
+
+        try {
+            this.evaluationResults = await this.model.evaluate(
+                this.trainingData.X_test,
+                this.trainingData.y_test,
+                this.trainingData.symbols
             );
 
-            // Make predictions
-            this.predictions = await this.model.predict(this.dataLoader.X_test);
-            
-            // Evaluate and visualize
-            this.evaluateAndVisualize();
-            
-            document.getElementById('status').textContent = 'Training completed!';
-            
+            this.updateStatus('Predictions completed! Rendering charts...');
+            this.renderCharts();
+            this.predictBtn.disabled = false;
         } catch (error) {
-            document.getElementById('status').textContent = `Training error: ${error.message}`;
-            console.error(error);
-        } finally {
-            this.isTraining = false;
-            document.getElementById('trainBtn').disabled = false;
+            this.updateStatus(`Prediction error: ${error.message}`, true);
+            console.error('Prediction error:', error);
+            this.predictBtn.disabled = false;
         }
     }
 
-    evaluateAndVisualize() {
-        // Compute stock accuracies
-        const stockAccuracies = this.model.computeStockAccuracies(
-            this.predictions, 
-            this.dataLoader.y_test, 
-            this.symbols
-        );
+    // Render accuracy and timeline charts
+    renderCharts() {
+        if (!this.evaluationResults) return;
 
+        this.renderAccuracyChart();
+        this.renderTimelineChart();
+    }
+
+    // Render accuracy bar chart
+    renderAccuracyChart() {
+        const ctx = document.getElementById('accuracyChart').getContext('2d');
+        
+        // Destroy previous chart if exists
+        if (this.accuracyChart) {
+            this.accuracyChart.destroy();
+        }
+
+        const { stockAccuracies } = this.evaluationResults;
+        
         // Sort stocks by accuracy
         const sortedStocks = Object.entries(stockAccuracies)
             .sort(([,a], [,b]) => b - a)
-            .map(([symbol, accuracy]) => ({ symbol, accuracy }));
+            .map(([symbol, accuracy]) => ({
+                symbol,
+                accuracy: accuracy * 100 // Convert to percentage
+            }));
 
-        // Update accuracy chart
-        this.updateAccuracyChart(sortedStocks);
+        const labels = sortedStocks.map(item => item.symbol);
+        const data = sortedStocks.map(item => item.accuracy);
         
-        // Update prediction timeline
-        this.updatePredictionTimeline(sortedStocks);
-    }
+        // Create gradient for bars
+        const gradient = ctx.createLinearGradient(0, 0, 0, 400);
+        gradient.addColorStop(0, 'rgba(74, 144, 226, 0.8)');
+        gradient.addColorStop(1, 'rgba(74, 144, 226, 0.4)');
 
-    initializeCharts() {
-        // Accuracy chart canvas
-        this.accuracyChart = new Chart(
-            document.getElementById('accuracyChart'),
-            {
-                type: 'bar',
-                data: {
-                    labels: [],
-                    datasets: [{
-                        label: 'Prediction Accuracy',
-                        data: [],
-                        backgroundColor: 'rgba(54, 162, 235, 0.6)',
-                        borderColor: 'rgba(54, 162, 235, 1)',
-                        borderWidth: 1
-                    }]
-                },
-                options: {
-                    indexAxis: 'y',
-                    responsive: true,
-                    plugins: {
+        this.accuracyChart = new Chart(ctx, {
+            type: 'bar',
+            data: {
+                labels: labels,
+                datasets: [{
+                    label: 'Prediction Accuracy (%)',
+                    data: data,
+                    backgroundColor: gradient,
+                    borderColor: 'rgba(74, 144, 226, 1)',
+                    borderWidth: 1,
+                    borderRadius: 4
+                }]
+            },
+            options: {
+                responsive: true,
+                maintainAspectRatio: false,
+                indexAxis: 'y',
+                scales: {
+                    x: {
+                        beginAtZero: true,
+                        max: 100,
                         title: {
                             display: true,
-                            text: 'Stock Prediction Accuracy (Sorted)'
+                            text: 'Accuracy (%)'
                         },
-                        legend: {
-                            display: false
+                        grid: {
+                            color: 'rgba(255, 255, 255, 0.1)'
+                        },
+                        ticks: {
+                            color: '#e0e0e0'
                         }
                     },
-                    scales: {
-                        x: {
-                            beginAtZero: true,
-                            max: 1.0,
-                            title: {
-                                display: true,
-                                text: 'Accuracy'
-                            }
+                    y: {
+                        grid: {
+                            color: 'rgba(255, 255, 255, 0.1)'
+                        },
+                        ticks: {
+                            color: '#e0e0e0'
                         }
                     }
-                }
-            }
-        );
-
-        // Timeline chart
-        this.timelineChart = new Chart(
-            document.getElementById('timelineChart'),
-            {
-                type: 'line',
-                data: {
-                    labels: [],
-                    datasets: []
                 },
-                options: {
-                    responsive: true,
-                    plugins: {
-                        title: {
-                            display: true,
-                            text: 'Prediction Results Timeline'
+                plugins: {
+                    legend: {
+                        labels: {
+                            color: '#e0e0e0'
                         }
                     },
-                    scales: {
-                        x: {
-                            title: {
-                                display: true,
-                                text: 'Test Samples'
-                            }
-                        },
-                        y: {
-                            title: {
-                                display: true,
-                                text: 'Stock'
-                            }
+                    tooltip: {
+                        callbacks: {
+                            label: (context) => `Accuracy: ${context.parsed.x.toFixed(2)}%`
                         }
                     }
                 }
             }
-        );
+        });
     }
 
-    updateAccuracyChart(sortedStocks) {
-        this.accuracyChart.data.labels = sortedStocks.map(item => item.symbol);
-        this.accuracyChart.data.datasets[0].data = sortedStocks.map(item => item.accuracy);
-        this.accuracyChart.update();
-    }
-
-    updatePredictionTimeline(sortedStocks) {
-        // For demonstration, show accuracy trend across test samples for top 3 stocks
-        const topStocks = sortedStocks.slice(0, 3);
-        const predArray = this.predictions.arraySync();
-        const testArray = this.dataLoader.y_test.arraySync();
+    // Render prediction timeline chart
+    renderTimelineChart() {
+        const ctx = document.getElementById('timelineChart').getContext('2d');
         
-        const datasets = topStocks.map((stock, idx) => {
-            const stockIdx = this.symbols.indexOf(stock.symbol);
-            const accuracies = [];
-            
-            // Calculate rolling accuracy for visualization
-            for (let sample = 0; sample < predArray.length; sample += 5) {
-                let correct = 0;
-                let total = 0;
-                
-                for (let i = sample; i < Math.min(sample + 5, predArray.length); i++) {
-                    for (let dayOffset = 0; dayOffset < 3; dayOffset++) {
-                        const outputIdx = stockIdx + dayOffset * this.symbols.length;
-                        const pred = predArray[i][outputIdx] > 0.5 ? 1 : 0;
-                        const actual = testArray[i][outputIdx];
-                        
-                        if (pred === actual) correct++;
-                        total++;
-                    }
-                }
-                accuracies.push(total > 0 ? correct / total : 0);
-            }
+        // Destroy previous chart if exists
+        if (this.timelineChart) {
+            this.timelineChart.destroy();
+        }
+
+        const { stockAccuracies, stockPredictions } = this.evaluationResults;
+        
+        // Get top 3 stocks by accuracy
+        const topStocks = Object.entries(stockAccuracies)
+            .sort(([,a], [,b]) => b - a)
+            .slice(0, 3)
+            .map(([symbol]) => symbol);
+
+        const datasets = topStocks.map((symbol, index) => {
+            const predictions = stockPredictions[symbol];
+            const colors = ['#4a90e2', '#50e3c2', '#e3507d']; // Different colors for each stock
             
             return {
-                label: stock.symbol,
-                data: accuracies,
-                borderColor: `hsl(${idx * 120}, 70%, 50%)`,
-                backgroundColor: `hsla(${idx * 120}, 70%, 50%, 0.1)`,
-                tension: 0.3,
-                fill: false
+                label: `${symbol} Predictions`,
+                data: predictions.map(p => p.correct),
+                borderColor: colors[index],
+                backgroundColor: colors[index] + '40',
+                tension: 0.1,
+                pointRadius: 4,
+                pointHoverRadius: 6
             };
         });
 
-        this.timelineChart.data.labels = Array.from({length: datasets[0].data.length}, (_, i) => `Sample ${i * 5}`);
-        this.timelineChart.data.datasets = datasets;
-        this.timelineChart.update();
+        const labels = Array.from({length: Math.min(50, stockPredictions[topStocks[0]].length)}, (_, i) => `Pred ${i + 1}`);
+
+        this.timelineChart = new Chart(ctx, {
+            type: 'line',
+            data: {
+                labels: labels,
+                datasets: datasets
+            },
+            options: {
+                responsive: true,
+                maintainAspectRatio: false,
+                scales: {
+                    x: {
+                        title: {
+                            display: true,
+                            text: 'Prediction Number'
+                        },
+                        grid: {
+                            color: 'rgba(255, 255, 255, 0.1)'
+                        },
+                        ticks: {
+                            color: '#e0e0e0'
+                        }
+                    },
+                    y: {
+                        title: {
+                            display: true,
+                            text: 'Correct (1) / Incorrect (0)'
+                        },
+                        min: -0.1,
+                        max: 1.1,
+                        grid: {
+                            color: 'rgba(255, 255, 255, 0.1)'
+                        },
+                        ticks: {
+                            color: '#e0e0e0',
+                            stepSize: 1,
+                            callback: function(value) {
+                                return value === 1 ? 'Correct' : value === 0 ? 'Incorrect' : '';
+                            }
+                        }
+                    }
+                },
+                plugins: {
+                    legend: {
+                        labels: {
+                            color: '#e0e0e0'
+                        }
+                    },
+                    tooltip: {
+                        callbacks: {
+                            label: (context) => {
+                                const stock = context.dataset.label.replace(' Predictions', '');
+                                const predIndex = context.dataIndex;
+                                const prediction = stockPredictions[stock][predIndex];
+                                return [
+                                    `Stock: ${stock}`,
+                                    `Prediction: ${prediction.pred === 1 ? 'UP' : 'DOWN'}`,
+                                    `Actual: ${prediction.truth === 1 ? 'UP' : 'DOWN'}`,
+                                    `Result: ${prediction.correct === 1 ? 'CORRECT' : 'INCORRECT'}`
+                                ];
+                            }
+                        }
+                    }
+                }
+            }
+        });
     }
 
-    dispose() {
-        this.dataLoader.dispose();
-        this.model.dispose();
-        if (this.predictions) {
-            this.predictions.dispose();
+    // Update status message
+    updateStatus(message, isError = false) {
+        this.statusElement.textContent = message;
+        this.statusElement.style.borderLeftColor = isError ? '#e3507d' : '#4a90e2';
+        
+        // Auto-clear success messages after 5 seconds
+        if (!isError && !message.includes('Please')) {
+            setTimeout(() => {
+                if (this.statusElement.textContent === message) {
+                    this.statusElement.textContent = 'Ready';
+                    this.statusElement.style.borderLeftColor = '#4a90e2';
+                }
+            }, 5000);
         }
     }
 }
 
 // Initialize app when DOM is loaded
 document.addEventListener('DOMContentLoaded', () => {
-    window.stockApp = new StockPredictionApp();
+    new StockPredictionApp();
 });
