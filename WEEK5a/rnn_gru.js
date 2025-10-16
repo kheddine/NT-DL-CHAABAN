@@ -1,11 +1,24 @@
 // rnn_gru.js
-// Hybrid SimpleRNN + GRU model with early stopping & backend fixes
+// Hybrid SimpleRNN + GRU with early stopping and robust training start.
 
 export class RNN_GRU_Model {
   constructor(inputShape, outputSize) {
-    this.inputShape = inputShape;
-    this.outputSize = outputSize;
+    this.inputShape = inputShape;   // [30, 4*stocks]
+    this.outputSize = outputSize;   // 3 * stocks
     this.model = null;
+  }
+
+  async ensureBackend() {
+    // Try WebGL; if it fails, fall back to CPU so training still starts.
+    try {
+      await tf.setBackend('webgl');
+      await tf.ready();
+      console.log('TF backend:', tf.getBackend());
+    } catch (e) {
+      console.warn('WebGL unavailable, falling back to CPU.', e);
+      await tf.setBackend('cpu');
+      await tf.ready();
+    }
   }
 
   buildModel() {
@@ -25,78 +38,88 @@ export class RNN_GRU_Model {
       loss: 'binaryCrossentropy',
       metrics: ['binaryAccuracy']
     });
+
     return this.model;
   }
 
   async train(Xtr, ytr, Xv, yv, epochs = 50, batchSize = 64) {
-    console.log("Train shapes:", Xtr.shape, ytr.shape);
-    console.log("Val shapes:", Xv.shape, yv.shape);
+    console.log('Train shapes:', Xtr.shape, ytr.shape);
+    console.log('Val shapes:', Xv.shape, yv.shape);
 
-    await tf.setBackend('webgl');
-    await tf.ready();
-
+    await this.ensureBackend();
     if (!this.model) this.buildModel();
 
-    const valOk = Xv && Xv.shape[0] > 0 && yv && yv.shape[0] > 0;
-    const valData = valOk ? [Xv, yv] : null;
-    if (!valOk) console.warn("⚠️ No validation data found — training without validation.");
+    const hasVal = (Xv?.shape?.[0] || 0) > 0 && (yv?.shape?.[0] || 0) > 0;
+    const valData = hasVal ? [Xv, yv] : null;
+    if (!hasVal) console.warn('⚠️ No validation split; training without val.');
 
     const earlyStop = tf.callbacks.earlyStopping({
-      monitor: valOk ? 'val_loss' : 'loss',
+      monitor: hasVal ? 'val_loss' : 'loss',
       patience: 6,
       restoreBestWeights: true
     });
 
-    const callbacks = [
-      earlyStop,
-      {
-        onEpochBegin: async (epoch) => {
-          console.log(`Starting epoch ${epoch + 1}/${epochs}`);
-          await tf.nextFrame();
-        },
-        onEpochEnd: async (epoch, logs) => {
-          const progress = document.getElementById('trainingProgress');
-          const status = document.getElementById('status');
-          if (progress) progress.value = ((epoch + 1) / epochs) * 100;
-          if (status)
-            status.textContent =
-              `Epoch ${epoch + 1}/${epochs} | loss: ${logs.loss.toFixed(4)} | acc: ${(logs.binaryAccuracy * 100).toFixed(1)}%` +
-              (valOk ? ` | val_acc: ${(logs.val_binaryAccuracy * 100).toFixed(1)}%` : '');
-          await tf.nextFrame();
+    const cb = {
+      onEpochBegin: async (epoch) => {
+        console.log(`Epoch ${epoch + 1}/${epochs} start`);
+        await tf.nextFrame();
+      },
+      onEpochEnd: async (epoch, logs) => {
+        const p = document.getElementById('trainingProgress');
+        const s = document.getElementById('status');
+        if (p) p.value = ((epoch + 1) / epochs) * 100;
+        if (s) {
+          const base = `Epoch ${epoch + 1}/${epochs} | loss: ${logs.loss.toFixed(4)} | acc: ${(logs.binaryAccuracy * 100).toFixed(1)}%`;
+          s.textContent = hasVal && logs.val_binaryAccuracy != null
+            ? `${base} | val_acc: ${(logs.val_binaryAccuracy * 100).toFixed(1)}%`
+            : base;
         }
+        await tf.nextFrame();
       }
-    ];
+    };
 
-    console.log("🚀 Starting model.fit...");
-    const history = await this.model.fit(Xtr, ytr, {
+    console.log('🚀 Starting model.fit...');
+    const hist = await this.model.fit(Xtr, ytr, {
       epochs,
       batchSize,
       shuffle: true,
       validationData: valData,
-      callbacks
+      callbacks: [earlyStop, cb]
     });
-
-    console.log("✅ Training completed");
-    return history;
+    console.log('✅ Training finished');
+    return hist;
   }
 
-  predict(X) { return this.model.predict(X); }
+  predict(X) {
+    const out = this.model.predict(X);
+    // tfjs predict may return a Tensor or array of Tensors depending on model; normalize to Tensor.
+    if (Array.isArray(out)) return out[0];
+    return out;
+  }
 
   evaluate(yTrue, yPred, symbols, horizon = 3) {
-    const t = yTrue.arraySync(), p = yPred.arraySync();
-    const acc = {}, detail = {};
+    const t = yTrue.arraySync();
+    const p = yPred.arraySync();
+    const acc = {};
+    const detail = {};
+
     symbols.forEach((sym, si) => {
-      let corr = 0, tot = 0; const preds = [];
-      for (let s = 0; s < t.length; s++) {
+      let correct = 0, total = 0;
+      const preds = [];
+      for (let i = 0; i < t.length; i++) {
         for (let h = 0; h < horizon; h++) {
           const idx = si * horizon + h;
-          const tr = t[s][idx], pr = p[s][idx] > 0.5 ? 1 : 0;
-          preds.push({ truth: tr, pred: pr, correct: tr === pr });
-          if (tr === pr) corr++; tot++;
+          const truth = t[i][idx];
+          const pred  = p[i][idx] > 0.5 ? 1 : 0;
+          preds.push({ truth, pred, correct: truth === pred });
+          if (truth === pred) correct++;
+          total++;
         }
       }
-      acc[sym] = tot ? corr / tot : 0; detail[sym] = preds;
+      acc[sym] = total ? correct / total : 0;
+      detail[sym] = preds;
     });
+
     return { stockAccuracies: acc, stockPredictions: detail };
   }
 }
