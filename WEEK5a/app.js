@@ -1,296 +1,82 @@
-/**
- * app.js
- * Coordinates UI interactions, dataset preparation, model training, and
- * visualisations for the client-side stock prediction demo.
- */
+// app.js
+// Controller: load CSV → build tensors → train CNN+GRU → predict → visualize
 
-import { loadCSVFile } from './data-loader.js';
-import { ensureBackend, createRNNGRUModel, trainModel, evaluateModel } from './rnn_gru.js';
+import {DataLoader} from './data-loader.js';
+import {CNN_GRU_Model} from './cnn_gru.js';
 
-const elements = {
-  fileInput: document.getElementById('csvFile'),
-  trainBtn: document.getElementById('trainBtn'),
-  predictBtn: document.getElementById('predictBtn'),
-  status: document.getElementById('status'),
-  progress: document.getElementById('trainingProgress'),
-  accuracyCanvas: document.getElementById('accuracyChart'),
-  timelineCanvas: document.getElementById('timelineChart'),
-};
-
-let dataset = null;
-let model = null;
-let charts = {
-  accuracy: null,
-  timeline: null,
-};
-let latestEvaluation = null;
-
-function setStatus(message, type = 'info') {
-  elements.status.textContent = message;
-  elements.status.style.color = type === 'error' ? '#ff6b6b' : '#a0c4ff';
-}
-
-function setProgress(value) {
-  elements.progress.value = value;
-}
-
-function resetCharts() {
-  if (charts.accuracy) {
-    charts.accuracy.destroy();
-    charts.accuracy = null;
+class StockApp{
+  constructor(){
+    this.loader=new DataLoader(); this.model=null; this.data=null; this.chart=null;
+    this.initUI();
   }
-  if (charts.timeline) {
-    charts.timeline.destroy();
-    charts.timeline = null;
+  initUI(){
+    csvFile.addEventListener('change',e=>this.load(e));
+    trainBtn.addEventListener('click',()=>this.train());
+    predictBtn.addEventListener('click',()=>this.predict());
   }
-}
+  status(m){document.getElementById('status').textContent=m;console.log(m);}
 
-function enableControls({ train, predict, file }) {
-  elements.trainBtn.disabled = !train;
-  elements.predictBtn.disabled = !predict;
-  elements.fileInput.disabled = !file;
-}
+  async load(e){
+    const f=e.target.files[0]; if(!f)return;
+    try{
+      this.status('Loading CSV…');
+      await this.loader.loadCSV(f);
+      this.status('Creating 12-day sequences…');
+      this.data=this.loader.createSequences(12,3);
+      trainBtn.disabled=false;
+      this.status('Data ready. Click Train.');
+    }catch(err){this.status('Error:'+err.message);console.error(err);}
+  }
 
-async function onCSVChange(event) {
-  const file = event.target.files?.[0];
-  if (!file) return;
+  async train(){
+    const {X_train,y_train,X_val,y_val,symbols}=this.data;
+    try{
+      this.status('Training model…');
+      this.model=new CNN_GRU_Model([12,2*symbols.length],3*symbols.length);
+      await this.model.train(X_train,y_train,X_val,y_val,50,64);
+      predictBtn.disabled=false;
+      this.status('Training done. Run prediction.');
+    }catch(err){this.status('Train error:'+err.message);console.error(err);}
+  }
 
-  try {
-    setStatus('Loading and processing CSV data...');
-    enableControls({ train: false, predict: false, file: false });
-    resetCharts();
+  async predict(){
+    const {X_test,y_test,symbols}=this.data;
+    try{
+      this.status('Predicting…');
+      const p=this.model.predict(X_test);
+      const ev=this.model.evaluate(y_test,p,symbols);
+      if(p.dispose)p.dispose();
+      this.render(ev);
+      this.status('Prediction complete.');
+    }catch(err){this.status('Predict error:'+err.message);console.error(err);}
+  }
 
-    if (dataset) {
-      dataset.X_train?.dispose();
-      dataset.y_train?.dispose();
-      dataset.X_val?.dispose();
-      dataset.y_val?.dispose();
-      dataset.X_test?.dispose();
-      dataset.y_test?.dispose();
-    }
-    dataset = null;
-
-    const tensors = await loadCSVFile(file, {
-      onStatus: (msg) => setStatus(msg),
+  render(ev){
+    const ctx=document.getElementById('accuracyChart').getContext('2d');
+    if(this.chart)this.chart.destroy();
+    const arr=Object.entries(ev.stockAccuracies).sort((a,b)=>b[1]-a[1]);
+    this.chart=new Chart(ctx,{
+      type:'bar',
+      data:{labels:arr.map(a=>a[0]),
+        datasets:[{label:'Accuracy (%)',data:arr.map(a=>a[1]*100),
+          backgroundColor:arr.map(a=>a[1]>0.6?'#6be4c1cc':'#ff6b6bcc')}]},
+      options:{indexAxis:'y',scales:{x:{beginAtZero:true,max:100}}}
     });
-    dataset = tensors;
-
-    setStatus('Dataset ready. Click "Train Model" to begin training.');
-    setProgress(0);
-    enableControls({ train: true, predict: false, file: true });
-  } catch (error) {
-    console.error(error);
-    setStatus(error.message || 'Failed to load CSV data.', 'error');
-    enableControls({ train: false, predict: false, file: true });
+    const cont=document.getElementById('timelineContainer'); cont.innerHTML='';
+    Object.entries(ev.stockPredictions).slice(0,3).forEach(([sym,preds])=>{
+      const d=document.createElement('div'); d.className='stock-chart';
+      d.innerHTML=`<h4>${sym}</h4><canvas id="tl-${sym}"></canvas>`;
+      cont.appendChild(d);
+      const c=document.getElementById(`tl-${sym}`).getContext('2d');
+      new Chart(c,{
+        type:'line',
+        data:{labels:preds.slice(0,50).map((_,i)=>i+1),
+          datasets:[{label:'Correct (1)/Wrong (0)',
+            data:preds.slice(0,50).map(p=>p.correct?1:0),
+            borderColor:'#6be4c1',backgroundColor:'#6be4c140',tension:0.3}]},
+        options:{scales:{y:{min:0,max:1}}}
+      });
+    });
   }
 }
-
-async function onTrainClick() {
-  if (!dataset) {
-    setStatus('Please load a CSV file before training.', 'error');
-    return;
-  }
-
-  try {
-    enableControls({ train: false, predict: false, file: false });
-    setStatus('Initialising TensorFlow backend...');
-    await ensureBackend((msg) => setStatus(msg));
-
-    if (model) {
-      model.dispose();
-    }
-    model = createRNNGRUModel(dataset.symbols.length);
-
-    setStatus('Training model...');
-    setProgress(0);
-
-    await trainModel(
-      model,
-      dataset,
-      {
-        onEpochBegin: (epoch) => {
-          setStatus(`Epoch ${epoch + 1} / 50 in progress...`);
-        },
-        onEpochEnd: (epoch, logs) => {
-          const progress = (epoch + 1) / 50;
-          setProgress(progress);
-          const acc = logs?.binaryAccuracy || logs?.val_binaryAccuracy || 0;
-          setStatus(
-            `Epoch ${epoch + 1} complete. Binary accuracy: ${(acc * 100).toFixed(2)}%`
-          );
-        },
-      }
-    );
-
-    setProgress(1);
-    setStatus('Training complete. Click "Generate Predictions" to evaluate.');
-    enableControls({ train: true, predict: true, file: true });
-  } catch (error) {
-    console.error(error);
-    setStatus(error.message || 'Training failed.', 'error');
-    enableControls({ train: true, predict: false, file: true });
-  }
-}
-
-function buildAccuracyChart(stockAccuracies) {
-  const labels = Object.keys(stockAccuracies);
-  const data = labels.map((label) => Number((stockAccuracies[label] * 100).toFixed(2)));
-
-  charts.accuracy = new Chart(elements.accuracyCanvas.getContext('2d'), {
-    type: 'bar',
-    data: {
-      labels,
-      datasets: [
-        {
-          label: 'Accuracy (%)',
-          data,
-          backgroundColor: '#3aa0ff',
-          borderRadius: 8,
-        },
-      ],
-    },
-    options: {
-      indexAxis: 'y',
-      responsive: true,
-      scales: {
-        x: {
-          min: 0,
-          max: 100,
-          ticks: {
-            callback: (value) => `${value}%`,
-            color: '#ccc',
-          },
-          grid: {
-            color: '#333',
-          },
-        },
-        y: {
-          ticks: {
-            color: '#ccc',
-          },
-          grid: {
-            display: false,
-          },
-        },
-      },
-      plugins: {
-        legend: {
-          labels: { color: '#eee' },
-        },
-      },
-    },
-  });
-}
-
-function buildTimelineChart(stockPredictions) {
-  const sortedStocks = Object.entries(latestEvaluation.stockAccuracies)
-    .sort((a, b) => b[1] - a[1])
-    .slice(0, 3)
-    .map(([symbol]) => symbol);
-
-  const maxLength = 50;
-  const labels = Array.from({ length: maxLength }, (_, i) => i + 1);
-  const datasets = sortedStocks.map((symbol, index) => {
-    const colorPalette = ['#8d6bff', '#3aa0ff', '#ff6b6b'];
-    const entries = stockPredictions[symbol] || [];
-    const data = new Array(maxLength).fill(null);
-    for (let i = 0; i < Math.min(entries.length, maxLength); i++) {
-      data[i] = entries[i].correct;
-    }
-    return {
-      label: `${symbol} (1=correct)`,
-      data,
-      fill: false,
-      tension: 0,
-      borderWidth: 2,
-      pointRadius: 3,
-      pointHoverRadius: 5,
-      borderColor: colorPalette[index % colorPalette.length],
-      pointBackgroundColor: colorPalette[index % colorPalette.length],
-    };
-  });
-
-  charts.timeline = new Chart(elements.timelineCanvas.getContext('2d'), {
-    type: 'line',
-    data: {
-      labels,
-      datasets,
-    },
-    options: {
-      responsive: true,
-      scales: {
-        y: {
-          min: 0,
-          max: 1,
-          ticks: {
-            stepSize: 1,
-            callback: (value) => (value === 1 ? 'Correct' : 'Incorrect'),
-            color: '#ccc',
-          },
-          grid: {
-            color: '#333',
-          },
-        },
-        x: {
-          ticks: {
-            color: '#ccc',
-          },
-          grid: {
-            color: '#2a2a2a',
-          },
-        },
-      },
-      plugins: {
-        legend: {
-          labels: { color: '#eee' },
-        },
-        tooltip: {
-          callbacks: {
-            label: (ctx) =>
-              ctx.raw === null
-                ? `${ctx.dataset.label}: No prediction`
-                : `${ctx.dataset.label}: ${ctx.raw === 1 ? 'Correct' : 'Incorrect'} (Truth ${
-                    stockPredictions[ctx.dataset.label.split(' ')[0]][ctx.dataIndex]?.truth
-                  }, Pred ${
-                    stockPredictions[ctx.dataset.label.split(' ')[0]][ctx.dataIndex]?.pred
-                  })`,
-          },
-        },
-      },
-    },
-  });
-}
-
-async function onPredictClick() {
-  if (!dataset || !model) {
-    setStatus('Load data and train the model before generating predictions.', 'error');
-    return;
-  }
-
-  try {
-    enableControls({ train: false, predict: false, file: false });
-    setStatus('Running inference on test set...');
-
-    latestEvaluation = await evaluateModel(model, dataset);
-    const { stockAccuracies, stockPredictions } = latestEvaluation;
-
-    setStatus('Predictions ready. Rendering charts.');
-    resetCharts();
-    buildAccuracyChart(stockAccuracies);
-    buildTimelineChart(stockPredictions);
-
-    setStatus('Evaluation complete. Charts updated.');
-    enableControls({ train: true, predict: true, file: true });
-  } catch (error) {
-    console.error(error);
-    setStatus(error.message || 'Prediction failed.', 'error');
-    enableControls({ train: true, predict: true, file: true });
-  }
-}
-
-elements.fileInput.addEventListener('change', onCSVChange);
-elements.trainBtn.addEventListener('click', onTrainClick);
-elements.predictBtn.addEventListener('click', onPredictClick);
-
-setStatus('Load a CSV file to begin.');
-setProgress(0);
+document.addEventListener('DOMContentLoaded',()=>new StockApp());
