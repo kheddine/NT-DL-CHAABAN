@@ -1,122 +1,104 @@
 // app.js
-import { loadCSV, prepareTensors } from './data-loader.js';
-import { createCNNGRUModel, trainModel, evaluateModel } from './cnn_gru.js';
+// Main controller for file loading, training, and visualization.
 
-let tensors = null;
-let model = null;
-let symbols = null;
+import { DataLoader } from './data-loader.js';
+import { RNNModel } from './rnn.js';
 
-const fileInput = document.getElementById('csvFile');
-const trainBtn = document.getElementById('trainBtn');
-const predictBtn = document.getElementById('predictBtn');
-const statusEl = document.getElementById('status');
-const progressEl = document.getElementById('trainingProgress');
-const accCanvas = document.getElementById('accuracyChart');
-const timelineContainer = document.getElementById('timelineContainer');
-let accChart = null;
-
-fileInput.addEventListener('change', async e => {
-  const file = e.target.files[0];
-  if (!file) return;
-  try {
-    statusEl.textContent = 'Loading CSV...';
-    const { data, symbols: syms } = await loadCSV(file);
-    tensors = prepareTensors(data, syms);
-    symbols = tensors.symbols;
-    statusEl.textContent = `Loaded ${symbols.length} stocks, ready to train.`;
-    trainBtn.disabled = false;
-  } catch (err) {
-    statusEl.textContent = `Error: ${err.message}`;
+class StockApp {
+  constructor() {
+    this.loader = new DataLoader();
+    this.model = null;
+    this.data = null;
+    this.evals = null;
+    this.initUI();
   }
-});
 
-trainBtn.addEventListener('click', async () => {
-  if (!tensors) return;
-  trainBtn.disabled = true;
-  predictBtn.disabled = true;
-  progressEl.value = 0;
-  statusEl.textContent = 'Initializing model...';
-  await tf.setBackend('webgl').catch(()=>tf.setBackend('cpu'));
-  await tf.ready();
-  model = createCNNGRUModel(symbols.length);
-  statusEl.textContent = 'Training started...';
+  initUI() {
+    document.getElementById('csvFile').addEventListener('change', (e) => this.handleFile(e));
+    document.getElementById('trainBtn').addEventListener('click', () => this.train());
+    document.getElementById('predictBtn').addEventListener('click', () => this.predict());
+  }
 
-  await trainModel(model, tensors.X_train, tensors.y_train, tensors.X_val, tensors.y_val,
-    (p)=>progressEl.value = p,
-    (msg)=>statusEl.textContent = msg
-  );
-
-  statusEl.textContent = 'Training complete.';
-  predictBtn.disabled = false;
-});
-
-predictBtn.addEventListener('click', async () => {
-  if (!model || !tensors) return;
-  statusEl.textContent = 'Running predictions...';
-  const result = await evaluateModel(model, tensors.X_test, tensors.y_test, symbols);
-  renderAccuracyChart(result.stockAccuracies);
-  renderTimelines(result.stockAccuracies, result.stockPredictions);
-  statusEl.textContent = 'Prediction complete.';
-  tensors.X_train.dispose();
-  tensors.y_train.dispose();
-  tensors.X_val.dispose();
-  tensors.y_val.dispose();
-  tensors.X_test.dispose();
-  tensors.y_test.dispose();
-});
-
-function renderAccuracyChart(stockAccuracies) {
-  const sorted = Object.entries(stockAccuracies).sort((a,b)=>b[1]-a[1]);
-  const labels = sorted.map(x=>x[0]);
-  const values = sorted.map(x=>x[1]);
-  if (accChart) accChart.destroy();
-  accChart = new Chart(accCanvas, {
-    type: 'bar',
-    data: {
-      labels,
-      datasets: [{
-        label: 'Accuracy',
-        data: values,
-        backgroundColor: '#4caf50'
-      }]
-    },
-    options: {
-      scales: {
-        y: {
-          beginAtZero: true,
-          max: 1
-        }
-      },
-      plugins: {
-        legend: {display:false}
-      }
+  async handleFile(e) {
+    const file = e.target.files[0];
+    if (!file) return;
+    const status = document.getElementById('status');
+    try {
+      status.textContent = 'Reading CSV...';
+      await this.loader.loadCSV(file);
+      status.textContent = 'Preparing 30-day sequences...';
+      this.data = this.loader.createSequences(30, 3);
+      document.getElementById('trainBtn').disabled = false;
+      status.textContent = `Loaded ${this.data.symbols.length} stocks. Ready to train.`;
+    } catch (err) {
+      console.error(err);
+      status.textContent = `Error: ${err.message}`;
     }
-  });
-}
+  }
 
-function renderTimelines(stockAccuracies, stockPredictions) {
-  timelineContainer.innerHTML = '';
-  const sorted = Object.entries(stockAccuracies).sort((a,b)=>b[1]-a[1]).slice(0,3);
-  for (const [sym] of sorted) {
-    const canvas = document.createElement('canvas');
-    timelineContainer.appendChild(canvas);
-    const data = stockPredictions[sym];
-    const labels = data.map((_,i)=>i);
-    const correct = data.map(d=>d.correct?1:0);
-    new Chart(canvas, {
-      type: 'line',
+  async train() {
+    const { X_train, y_train, X_test, y_test, symbols } = this.data;
+    this.model = new RNNModel([30, 4 * symbols.length], 3 * symbols.length);
+    document.getElementById('status').textContent = 'Training model...';
+    await this.model.train(X_train, y_train, X_test, y_test, 25, 32);
+    document.getElementById('predictBtn').disabled = false;
+    document.getElementById('status').textContent = 'Training complete. Click Run Prediction.';
+  }
+
+  async predict() {
+    const { X_test, y_test, symbols } = this.data;
+    document.getElementById('status').textContent = 'Running predictions...';
+    const preds = this.model.predict(X_test);
+    const evals = this.model.evaluate(y_test, preds, symbols);
+    this.evals = evals;
+    this.render(evals);
+    preds.dispose();
+    document.getElementById('status').textContent = 'Predictions ready.';
+  }
+
+  render(evals) {
+    const ctx = document.getElementById('accuracyChart').getContext('2d');
+    const entries = Object.entries(evals.stockAccuracies).sort((a, b) => b[1] - a[1]);
+    new Chart(ctx, {
+      type: 'bar',
       data: {
-        labels,
+        labels: entries.map(e => e[0]),
         datasets: [{
-          label: `${sym} Correct(1)/Wrong(0)`,
-          data: correct,
-          borderColor: '#2196f3',
-          fill: false
+          label: 'Accuracy (%)',
+          data: entries.map(e => e[1] * 100),
+          backgroundColor: entries.map(e => e[1] > 0.6 ? 'rgba(75,192,192,0.8)' : 'rgba(255,99,132,0.8)')
         }]
       },
       options: {
-        scales: { y: {min:0, max:1, ticks:{stepSize:1}} }
+        indexAxis: 'y',
+        scales: { x: { beginAtZero: true, max: 100 } }
       }
+    });
+
+    const container = document.getElementById('timelineContainer');
+    container.innerHTML = '';
+    Object.entries(evals.stockPredictions).slice(0, 3).forEach(([sym, preds]) => {
+      const div = document.createElement('div');
+      div.className = 'stock-chart';
+      div.innerHTML = `<h4>${sym} Predictions</h4><canvas id="tl-${sym}"></canvas>`;
+      container.appendChild(div);
+      const c = document.getElementById(`tl-${sym}`).getContext('2d');
+      new Chart(c, {
+        type: 'line',
+        data: {
+          labels: preds.slice(0, 50).map((_, i) => i + 1),
+          datasets: [{
+            label: 'Correct(1)/Wrong(0)',
+            data: preds.slice(0, 50).map(p => p.correct ? 1 : 0),
+            borderColor: 'rgb(75,192,192)',
+            backgroundColor: 'rgba(75,192,192,0.2)',
+            tension: 0.3
+          }]
+        },
+        options: { scales: { y: { min: 0, max: 1 } } }
+      });
     });
   }
 }
+
+document.addEventListener('DOMContentLoaded', () => new StockApp());
