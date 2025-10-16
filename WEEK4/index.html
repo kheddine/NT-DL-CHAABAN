@@ -1,155 +1,296 @@
-<!-- index.html -->
 <!DOCTYPE html>
 <html lang="en">
 <head>
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
-    <title>TensorFlow.js MNIST Demo</title>
+    <title>MNIST CSV Viewer</title>
+    <script src="https://cdn.jsdelivr.net/npm/@tensorflow/tfjs@4.10.0/dist/tf.min.js"></script>
     <style>
-        /* Minimal CSS for two-column layout and horizontal preview */
         body {
             font-family: Arial, sans-serif;
             margin: 20px;
             background-color: #f5f5f5;
         }
         .container {
-            display: grid;
-            grid-template-columns: 1fr 1fr;
-            gap: 20px;
-            max-width: 1400px;
+            max-width: 1200px;
             margin: 0 auto;
-        }
-        .column {
             background: white;
             padding: 20px;
-            border-radius: 8px;
-            box-shadow: 0 2px 4px rgba(0,0,0,0.1);
+            border-radius: 10px;
+            box-shadow: 0 2px 10px rgba(0,0,0,0.1);
         }
         .controls {
-            grid-column: 1 / -1;
-            display: flex;
-            flex-wrap: wrap;
-            gap: 10px;
             margin-bottom: 20px;
-            padding: 20px;
+            padding: 15px;
+            background: #e9ecef;
+            border-radius: 5px;
+        }
+        .image-grid {
+            display: grid;
+            grid-template-columns: repeat(auto-fill, minmax(150px, 1fr));
+            gap: 15px;
+            margin-top: 20px;
+        }
+        .digit-container {
+            text-align: center;
+            padding: 10px;
+            border: 1px solid #ddd;
+            border-radius: 5px;
             background: white;
-            border-radius: 8px;
-            box-shadow: 0 2px 4px rgba(0,0,0,0.1);
+        }
+        .digit-canvas {
+            border: 1px solid #ccc;
+            image-rendering: pixelated;
+            image-rendering: crisp-edges;
+        }
+        .label {
+            margin-top: 5px;
+            font-weight: bold;
+            color: #333;
         }
         button {
-            padding: 8px 16px;
-            background: #4285f4;
+            padding: 10px 20px;
+            margin: 5px;
+            background: #007bff;
             color: white;
             border: none;
-            border-radius: 4px;
+            border-radius: 5px;
             cursor: pointer;
         }
-        button:disabled {
-            background: #ccc;
-            cursor: not-allowed;
+        button:hover {
+            background: #0056b3;
         }
-        input[type="file"] {
-            margin: 5px 0;
-        }
-        .preview-row {
-            display: flex;
-            gap: 10px;
-            margin: 20px 0;
-            padding: 10px;
-            background: #f9f9f9;
-            border-radius: 4px;
-            overflow-x: auto;
-        }
-        .preview-item {
-            display: flex;
-            flex-direction: column;
-            align-items: center;
-        }
-        .preview-canvas {
-            border: 1px solid #ddd;
-            margin-bottom: 5px;
-        }
-        .correct {
-            color: green;
-            font-weight: bold;
-        }
-        .wrong {
-            color: red;
-            font-weight: bold;
-        }
-        .status {
+        .stats {
             margin: 10px 0;
             padding: 10px;
-            border-radius: 4px;
-            background: #e3f2fd;
+            background: #d4edda;
+            border-radius: 5px;
         }
-        .error {
-            background: #ffebee;
-            color: #c62828;
+        .loading {
+            color: #6c757d;
+            font-style: italic;
+        }
+        input[type="file"] {
+            margin: 10px 0;
         }
     </style>
 </head>
 <body>
-    <h1>TensorFlow.js MNIST Demo</h1>
-    
-    <div class="controls">
-        <!-- File upload controls -->
-        <div>
-            <label>Upload Train CSV: <input type="file" id="train-csv" accept=".csv"></label><br>
-            <label>Upload Test CSV: <input type="file" id="test-csv" accept=".csv"></label>
-        </div>
-        
-        <!-- Main action buttons -->
-        <button id="load-data">Load Data</button>
-        <button id="train" disabled>Train</button>
-        <button id="evaluate" disabled>Evaluate</button>
-        <button id="test-five" disabled>Test 5 Random</button>
-        
-        <!-- Model management -->
-        <button id="save-model" disabled>Save Model (Download)</button>
-        <div>
-            <label>Upload Model JSON: <input type="file" id="upload-json" accept=".json"></label><br>
-            <label>Upload Weights: <input type="file" id="upload-weights" accept=".bin"></label>
-        </div>
-        <button id="load-model">Load Model</button>
-        
-        <!-- Utility buttons -->
-        <button id="reset">Reset</button>
-        <button id="toggle-visor">Toggle Visor</button>
-    </div>
-
     <div class="container">
-        <!-- Left column: Data and Training -->
-        <div class="column">
-            <h2>Data Status</h2>
-            <div id="data-status" class="status">No data loaded</div>
-            
-            <h2>Training Logs</h2>
-            <div id="training-logs" class="status">Training not started</div>
-            
-            <h2>Model Info</h2>
-            <div id="model-info" class="status">No model loaded</div>
+        <h1>MNIST CSV Data Viewer</h1>
+        
+        <div class="controls">
+            <input type="file" id="csvFile" accept=".csv">
+            <button onclick="loadCSVFile()">Load CSV File</button>
+            <button onclick="displaySampleImages()">Show Sample Images</button>
+            <button onclick="clearDisplay()">Clear Display</button>
+            <div class="stats" id="stats">Select a CSV file to begin</div>
         </div>
 
-        <!-- Right column: Results and Preview -->
-        <div class="column">
-            <h2>Metrics</h2>
-            <div id="metrics" class="status">No evaluation performed</div>
-            
-            <h2>Random 5 Preview</h2>
-            <div id="preview-container">
-                <div class="preview-row" id="preview-canvases"></div>
-                <div id="preview-labels"></div>
-            </div>
+        <div id="loading" class="loading" style="display: none;">
+            Loading and processing data...
         </div>
+
+        <div id="imageGrid" class="image-grid"></div>
     </div>
 
-    <!-- TensorFlow.js and tfjs-vis CDNs -->
-    <script src="https://cdn.jsdelivr.net/npm/@tensorflow/tfjs@latest"></script>
-    <script src="https://cdn.jsdelivr.net/npm/@tensorflow/tfjs-vis@latest"></script>
-    
-    <!-- Application scripts -->
-    <script src="data-loader.js"></script>
-    <script src="app.js"></script>
+    <script>
+        // Global variables to store the loaded data
+        let imagesTensor = null;
+        let labelsTensor = null;
+        let imagesArray = [];
+        let labelsArray = [];
+
+        // Function to load and parse CSV file
+        async function loadCSVFile() {
+            const fileInput = document.getElementById('csvFile');
+            const file = fileInput.files[0];
+            
+            if (!file) {
+                alert('Please select a CSV file');
+                return;
+            }
+
+            try {
+                document.getElementById('loading').style.display = 'block';
+                document.getElementById('stats').innerHTML = 'Reading CSV file...';
+                
+                const text = await readFileAsText(file);
+                await processCSVData(text);
+                
+            } catch (error) {
+                console.error('Error loading CSV:', error);
+                document.getElementById('stats').innerHTML = `Error: ${error.message}`;
+            } finally {
+                document.getElementById('loading').style.display = 'none';
+            }
+        }
+
+        // Read file as text
+        function readFileAsText(file) {
+            return new Promise((resolve, reject) => {
+                const reader = new FileReader();
+                reader.onload = e => resolve(e.target.result);
+                reader.onerror = e => reject(new Error('Failed to read file'));
+                reader.readAsText(file);
+            });
+        }
+
+        // Process CSV data and create tensors
+        async function processCSVData(csvText) {
+            const lines = csvText.trim().split('\n');
+            imagesArray = [];
+            labelsArray = [];
+            
+            let validSamples = 0;
+            let invalidSamples = 0;
+
+            // Process each line (skip header)
+            for (let i = 1; i < lines.length; i++) {
+                const line = lines[i].trim();
+                if (!line) continue;
+                
+                try {
+                    const values = line.split(',').map(val => {
+                        const num = parseInt(val.trim(), 10);
+                        return isNaN(num) ? 0 : num;
+                    });
+                    
+                    if (values.length >= 785) { // label + 28x28 pixels
+                        const label = values[0];
+                        const pixels = values.slice(1, 785); // Take exactly 784 pixels
+                        
+                        labelsArray.push(label);
+                        imagesArray.push(pixels);
+                        validSamples++;
+                    } else {
+                        invalidSamples++;
+                    }
+                } catch (error) {
+                    invalidSamples++;
+                    console.warn(`Error processing line ${i}:`, error);
+                }
+            }
+
+            // Create proper 4D tensor structure
+            const batchSize = imagesArray.length;
+            const imageData = [];
+            
+            // Reshape each image to 28x28x1
+            for (let i = 0; i < batchSize; i++) {
+                const image = [];
+                for (let y = 0; y < 28; y++) {
+                    const row = [];
+                    for (let x = 0; x < 28; x++) {
+                        const pixelIndex = y * 28 + x;
+                        row.push([imagesArray[i][pixelIndex] / 255.0]); // Normalize to 0-1
+                    }
+                    image.push(row);
+                }
+                imageData.push(image);
+            }
+
+            // Create tensors
+            imagesTensor = tf.tensor4d(imageData, [batchSize, 28, 28, 1]);
+            labelsTensor = tf.tensor1d(labelsArray, 'int32');
+
+            // Display statistics
+            document.getElementById('stats').innerHTML = `
+                Loaded ${validSamples} valid samples<br>
+                ${invalidSamples} invalid lines skipped<br>
+                Tensor shape: ${imagesTensor.shape}<br>
+                Labels shape: ${labelsTensor.shape}
+            `;
+
+            console.log('Images tensor shape:', imagesTensor.shape);
+            console.log('Labels tensor shape:', labelsTensor.shape);
+            
+            // Display first few images
+            displaySampleImages();
+        }
+
+        // Display sample images
+        async function displaySampleImages() {
+            if (!imagesTensor || !labelsTensor) {
+                alert('Please load data first');
+                return;
+            }
+
+            const imageGrid = document.getElementById('imageGrid');
+            imageGrid.innerHTML = '';
+            
+            const numSamples = Math.min(20, imagesTensor.shape[0]);
+            
+            // Get data from tensors
+            const imagesData = await imagesTensor.array();
+            const labelsData = await labelsTensor.array();
+            
+            for (let i = 0; i < numSamples; i++) {
+                const container = document.createElement('div');
+                container.className = 'digit-container';
+                
+                const canvas = document.createElement('canvas');
+                canvas.width = 28;
+                canvas.height = 28;
+                canvas.className = 'digit-canvas';
+                
+                const label = document.createElement('div');
+                label.className = 'label';
+                label.textContent = `Label: ${labelsData[i]}`;
+                
+                // Draw image on canvas
+                drawMNISTImage(canvas, imagesData[i]);
+                
+                container.appendChild(canvas);
+                container.appendChild(label);
+                imageGrid.appendChild(container);
+            }
+        }
+
+        // Draw MNIST image on canvas
+        function drawMNISTImage(canvas, imageData) {
+            const ctx = canvas.getContext('2d');
+            const imageDataObj = ctx.createImageData(28, 28);
+            
+            for (let y = 0; y < 28; y++) {
+                for (let x = 0; x < 28; x++) {
+                    const pixelValue = imageData[y][x][0] * 255; // Denormalize
+                    const index = (y * 28 + x) * 4;
+                    
+                    imageDataObj.data[index] = pixelValue;     // R
+                    imageDataObj.data[index + 1] = pixelValue; // G
+                    imageDataObj.data[index + 2] = pixelValue; // B
+                    imageDataObj.data[index + 3] = 255;        // A
+                }
+            }
+            
+            ctx.putImageData(imageDataObj, 0, 0);
+        }
+
+        // Clear display
+        function clearDisplay() {
+            document.getElementById('imageGrid').innerHTML = '';
+            document.getElementById('stats').innerHTML = 'Display cleared';
+            
+            // Clean up tensors
+            if (imagesTensor) {
+                imagesTensor.dispose();
+                imagesTensor = null;
+            }
+            if (labelsTensor) {
+                labelsTensor.dispose();
+                labelsTensor = null;
+            }
+            
+            imagesArray = [];
+            labelsArray = [];
+        }
+
+        // Clean up on page unload
+        window.addEventListener('beforeunload', () => {
+            if (imagesTensor) imagesTensor.dispose();
+            if (labelsTensor) labelsTensor.dispose();
+        });
+    </script>
 </body>
 </html>
