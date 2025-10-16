@@ -1,204 +1,217 @@
-import * as tf from 'https://cdn.jsdelivr.net/npm/@tensorflow/tfjs@4.10.0/+esm';
+// data-loader.js
+/**
+ * Data loading and preprocessing utilities for MNIST CSV files
+ * Handles file parsing, normalization, and tensor creation entirely in browser
+ */
 
-export class StockDataLoader {
+class MNISTDataLoader {
     constructor() {
-        this.data = null;
-        this.symbols = [];
-        this.dates = [];
-        this.normalizedData = null;
-        this.X_train = null;
-        this.y_train = null;
-        this.X_test = null;
-        this.y_test = null;
+        this.trainData = null;
+        this.testData = null;
     }
 
-    async loadCSV(file) {
+    /**
+     * Parse CSV file and convert to tensor data
+     * @param {File} file - CSV file containing MNIST data
+     * @returns {Promise<{xs: tf.Tensor, ys: tf.Tensor}>} Normalized image and label tensors
+     */
+    async loadFromFile(file) {
         return new Promise((resolve, reject) => {
             const reader = new FileReader();
-            reader.onload = (e) => {
+            
+            reader.onload = (event) => {
                 try {
-                    const csv = e.target.result;
-                    this.parseCSV(csv);
-                    resolve(this.data);
+                    const csvText = event.target.result;
+                    const { images, labels } = this.parseCSV(csvText);
+                    
+                    // Convert to tensors and normalize
+                    const xs = tf.tensor4d(images, [images.length, 28, 28, 1])
+                                .div(255.0); // Normalize pixel values to [0, 1]
+                    
+                    const ys = tf.oneHot(labels, 10); // Convert labels to one-hot encoding
+                    
+                    resolve({ xs, ys });
                 } catch (error) {
                     reject(error);
                 }
             };
+            
             reader.onerror = () => reject(new Error('Failed to read file'));
             reader.readAsText(file);
         });
     }
 
+    /**
+     * Parse CSV text into arrays of images and labels
+     * @param {string} csvText - Raw CSV content
+     * @returns {{images: number[][], labels: number[]}} Parsed data
+     */
     parseCSV(csvText) {
-        const lines = csvText.trim().split('\n');
-        const headers = lines[0].split(',').map(h => h.trim());
+        const lines = csvText.split('\n');
+        const images = [];
+        const labels = [];
         
-        // Validate required columns
-        const requiredCols = ['Date', 'Symbol', 'Open', 'Close'];
-        if (!requiredCols.every(col => headers.includes(col))) {
-            throw new Error('CSV must contain Date, Symbol, Open, Close columns');
+        for (const line of lines) {
+            // Skip empty lines and potential headers
+            if (!line.trim() || isNaN(parseInt(line[0]))) continue;
+            
+            const values = line.split(',').map(Number);
+            const label = values[0];
+            const pixels = values.slice(1, 785); // Get 784 pixel values
+            
+            // Validate data length
+            if (pixels.length !== 784) {
+                console.warn('Skipping invalid row with incorrect pixel count:', pixels.length);
+                continue;
+            }
+            
+            labels.push(label);
+            images.push(pixels);
         }
-
-        const data = [];
-        for (let i = 1; i < lines.length; i++) {
-            const values = lines[i].split(',').map(v => v.trim());
-            if (values.length !== headers.length) continue;
-            
-            const row = {};
-            headers.forEach((header, index) => {
-                row[header] = values[index];
-            });
-            
-            // Convert numeric values
-            row.Open = parseFloat(row.Open);
-            row.Close = parseFloat(row.Close);
-            if (isNaN(row.Open) || isNaN(row.Close)) continue;
-            
-            data.push(row);
-        }
-
-        this.data = data;
-        this.prepareDataset();
+        
+        console.log(`Parsed ${images.length} samples with labels:`, 
+                    Array.from(new Set(labels)).sort());
+        
+        return { images, labels };
     }
 
-    prepareDataset() {
-        // Extract unique symbols and dates
-        this.symbols = [...new Set(this.data.map(row => row.Symbol))].sort();
-        this.dates = [...new Set(this.data.map(row => row.Date))].sort();
-        
-        if (this.symbols.length !== 10) {
-            console.warn(`Expected 10 stocks, found ${this.symbols.length}`);
-        }
-
-        // Pivot data: date × symbol → features
-        const pivotedData = [];
-        for (const date of this.dates) {
-            const dayData = { date };
-            for (const symbol of this.symbols) {
-                const row = this.data.find(r => r.Date === date && r.Symbol === symbol);
-                if (row) {
-                    dayData[`${symbol}_Open`] = row.Open;
-                    dayData[`${symbol}_Close`] = row.Close;
-                }
-            }
-            // Only include complete days (all 10 stocks present)
-            if (Object.keys(dayData).length === 21) { // 1 date + 20 features
-                pivotedData.push(dayData);
-            }
-        }
-
-        this.normalizeData(pivotedData);
-        this.createSequences(pivotedData);
+    /**
+     * Load training data from file
+     * @param {File} file - Training CSV file
+     * @returns {Promise<{xs: tf.Tensor, ys: tf.Tensor}>} Training tensors
+     */
+    async loadTrainFromFiles(file) {
+        this.trainData = await this.loadFromFile(file);
+        return this.trainData;
     }
 
-    normalizeData(pivotedData) {
-        this.normalizedData = [];
-        this.minMax = {};
+    /**
+     * Load test data from file
+     * @param {File} file - Test CSV file
+     * @returns {Promise<{xs: tf.Tensor, ys: tf.Tensor}>} Test tensors
+     */
+    async loadTestFromFiles(file) {
+        this.testData = await this.loadFromFile(file);
+        return this.testData;
+    }
 
-        // Calculate min-max per stock feature
-        for (const symbol of this.symbols) {
-            const opens = pivotedData.map(d => d[`${symbol}_Open`]);
-            const closes = pivotedData.map(d => d[`${symbol}_Close`]);
+    /**
+     * Split training data into training and validation sets
+     * @param {tf.Tensor} xs - Input features
+     * @param {tf.Tensor} ys - Labels
+     * @param {number} valRatio - Validation set ratio (default: 0.1)
+     * @returns {Object} Split datasets
+     */
+    splitTrainVal(xs, ys, valRatio = 0.1) {
+        const numSamples = xs.shape[0];
+        const numVal = Math.floor(numSamples * valRatio);
+        const numTrain = numSamples - numVal;
+        
+        // Split indices
+        const indices = tf.util.createShuffledIndices(numSamples);
+        const trainIndices = indices.slice(0, numTrain);
+        const valIndices = indices.slice(numTrain);
+        
+        // Create subsets using tidy to avoid memory leaks
+        return tf.tidy(() => {
+            const trainXs = xs.gather(trainIndices);
+            const trainYs = ys.gather(trainIndices);
+            const valXs = xs.gather(valIndices);
+            const valYs = ys.gather(valIndices);
             
-            this.minMax[`${symbol}_Open`] = {
-                min: Math.min(...opens),
-                max: Math.max(...opens)
+            return { trainXs, trainYs, valXs, valYs };
+        });
+    }
+
+    /**
+     * Get random batch of test samples for preview
+     * @param {tf.Tensor} xs - Test features
+     * @param {tf.Tensor} ys - Test labels
+     * @param {number} k - Number of samples (default: 5)
+     * @returns {Object} Batch of test samples
+     */
+    getRandomTestBatch(xs, ys, k = 5) {
+        return tf.tidy(() => {
+            const numSamples = xs.shape[0];
+            const indices = [];
+            
+            // Generate k unique random indices
+            while (indices.length < k) {
+                const idx = Math.floor(Math.random() * numSamples);
+                if (!indices.includes(idx)) indices.push(idx);
+            }
+            
+            const batchXs = xs.gather(indices);
+            const batchYs = ys.gather(indices);
+            
+            return {
+                xs: batchXs,
+                ys: batchYs,
+                indices: indices
             };
-            this.minMax[`${symbol}_Close`] = {
-                min: Math.min(...closes),
-                max: Math.max(...closes)
-            };
-        }
-
-        // Normalize data
-        for (const day of pivotedData) {
-            const normalizedDay = { date: day.date };
-            for (const symbol of this.symbols) {
-                const openKey = `${symbol}_Open`;
-                const closeKey = `${symbol}_Close`;
-                
-                normalizedDay[openKey] = (day[openKey] - this.minMax[openKey].min) / 
-                                       (this.minMax[openKey].max - this.minMax[openKey].min);
-                normalizedDay[closeKey] = (day[closeKey] - this.minMax[closeKey].min) / 
-                                        (this.minMax[closeKey].max - this.minMax[closeKey].min);
-            }
-            this.normalizedData.push(normalizedDay);
-        }
+        });
     }
 
-    createSequences(normalizedData) {
-        const sequenceLength = 12;
-        const predictionHorizon = 3;
-        
-        const sequences = [];
-        const targets = [];
-
-        for (let i = sequenceLength; i < normalizedData.length - predictionHorizon; i++) {
-            // Input sequence: last 12 days
-            const sequence = [];
-            for (let j = i - sequenceLength; j < i; j++) {
-                const features = [];
-                for (const symbol of this.symbols) {
-                    features.push(normalizedData[j][`${symbol}_Open`]);
-                    features.push(normalizedData[j][`${symbol}_Close`]);
-                }
-                sequence.push(features);
-            }
-
-            // Target: binary classification for next 3 days for each stock
-            const target = [];
-            const currentClosePrices = {};
+    /**
+     * Draw 28x28 tensor to canvas element
+     * @param {tf.Tensor} tensor - Image tensor (shape: [28, 28, 1] or [1, 28, 28, 1])
+     * @param {HTMLCanvasElement} canvas - Target canvas element
+     * @param {number} scale - Scaling factor for display (default: 4)
+     */
+    draw28x28ToCanvas(tensor, canvas, scale = 4) {
+        tf.tidy(() => {
+            // Ensure tensor is 2D and normalized
+            const imageTensor = tensor.squeeze(); // Remove singleton dimensions
+            const imageData = imageTensor.mul(255).cast('int32'); // Denormalize to 0-255
             
-            // Get current close prices for reference
-            for (const symbol of this.symbols) {
-                currentClosePrices[symbol] = normalizedData[i][`${symbol}_Close`];
-            }
-
-            // Calculate binary labels for next 3 days
-            for (let offset = 1; offset <= predictionHorizon; offset++) {
-                const futureDay = normalizedData[i + offset];
-                for (const symbol of this.symbols) {
-                    const futureClose = futureDay[`${symbol}_Close`];
-                    const currentClose = currentClosePrices[symbol];
-                    const label = futureClose > currentClose ? 1 : 0;
-                    target.push(label);
+            // Set canvas dimensions
+            canvas.width = 28 * scale;
+            canvas.height = 28 * scale;
+            
+            const ctx = canvas.getContext('2d');
+            ctx.clearRect(0, 0, canvas.width, canvas.height);
+            ctx.imageSmoothingEnabled = false;
+            
+            // Create image data for 28x28
+            const imageArray = imageData.arraySync();
+            const imgData = ctx.createImageData(28, 28);
+            
+            for (let i = 0; i < 28; i++) {
+                for (let j = 0; j < 28; j++) {
+                    const pixelValue = imageArray[i][j];
+                    const idx = (i * 28 + j) * 4;
+                    imgData.data[idx] = pixelValue;     // R
+                    imgData.data[idx + 1] = pixelValue; // G
+                    imgData.data[idx + 2] = pixelValue; // B
+                    imgData.data[idx + 3] = 255;        // A
                 }
             }
-
-            sequences.push(sequence);
-            targets.push(target);
-        }
-
-        this.splitData(sequences, targets);
+            
+            // Draw original size to temp canvas
+            const tempCanvas = document.createElement('canvas');
+            tempCanvas.width = 28;
+            tempCanvas.height = 28;
+            const tempCtx = tempCanvas.getContext('2d');
+            tempCtx.putImageData(imgData, 0, 0);
+            
+            // Scale up to display canvas
+            ctx.drawImage(tempCanvas, 0, 0, 28 * scale, 28 * scale);
+        });
     }
 
-    splitData(sequences, targets) {
-        const splitIndex = Math.floor(sequences.length * 0.8);
-        
-        this.X_train = tf.tensor3d(sequences.slice(0, splitIndex));
-        this.y_train = tf.tensor2d(targets.slice(0, splitIndex));
-        this.X_test = tf.tensor3d(sequences.slice(splitIndex));
-        this.y_test = tf.tensor2d(targets.slice(splitIndex));
-
-        console.log(`Training samples: ${this.X_train.shape[0]}`);
-        console.log(`Test samples: ${this.X_test.shape[0]}`);
-        console.log(`Input shape: [${this.X_train.shape.join(', ')}]`);
-        console.log(`Output shape: [${this.y_train.shape.join(', ')}]`);
-    }
-
-    getSymbols() {
-        return this.symbols;
-    }
-
-    getTestDates() {
-        const startIndex = Math.floor(this.normalizedData.length * 0.8) + 12;
-        return this.dates.slice(startIndex, startIndex + this.X_test.shape[0]);
-    }
-
+    /**
+     * Clean up tensors to prevent memory leaks
+     */
     dispose() {
-        if (this.X_train) this.X_train.dispose();
-        if (this.y_train) this.y_train.dispose();
-        if (this.X_test) this.X_test.dispose();
-        if (this.y_test) this.y_test.dispose();
+        if (this.trainData) {
+            this.trainData.xs.dispose();
+            this.trainData.ys.dispose();
+            this.trainData = null;
+        }
+        if (this.testData) {
+            this.testData.xs.dispose();
+            this.testData.ys.dispose();
+            this.testData = null;
+        }
     }
 }
