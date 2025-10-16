@@ -12,9 +12,18 @@ export class StockPredictionApp {
         this.symbols = [];
         
         this.initializeUI();
+        this.setupEventListeners();
     }
 
     initializeUI() {
+        // Ensure required DOM elements exist
+        if (!document.getElementById('csvFile') || !document.getElementById('trainBtn')) {
+            console.error('Required DOM elements not found');
+            return;
+        }
+    }
+
+    setupEventListeners() {
         // File input handler
         document.getElementById('csvFile').addEventListener('change', (e) => {
             this.handleFileUpload(e.target.files[0]);
@@ -42,12 +51,12 @@ export class StockPredictionApp {
             const data = this.dataLoader.getData();
             this.symbols = data.symbols;
             
-            this.updateStatus('Data loaded successfully. Ready to train.');
+            this.updateStatus(`Data loaded: ${this.symbols.length} stocks, ${data.X_train.shape[0]} training samples, ${data.X_test.shape[0]} test samples`);
             document.getElementById('trainBtn').disabled = false;
             
         } catch (error) {
             this.updateStatus(`Error loading file: ${error.message}`);
-            console.error(error);
+            console.error('File loading error:', error);
         }
     }
 
@@ -57,21 +66,23 @@ export class StockPredictionApp {
         try {
             this.isTraining = true;
             document.getElementById('trainBtn').disabled = true;
-            
-            const data = this.dataLoader.getData();
             this.updateStatus('Building model...');
             
+            // Clear previous model
+            this.model.dispose();
             this.model.buildModel();
             
+            const data = this.dataLoader.getData();
             this.updateStatus('Starting training...');
-            await this.model.train(data.X_train, data.y_train, data.X_test, data.y_test, 50, 32);
+            
+            await this.model.train(data.X_train, data.y_train, data.X_test, data.y_test, 25, 16); // Reduced for speed
             
             this.updateStatus('Training completed. Evaluating model...');
             await this.evaluateModel();
             
         } catch (error) {
             this.updateStatus(`Training error: ${error.message}`);
-            console.error(error);
+            console.error('Training error:', error);
         } finally {
             this.isTraining = false;
             document.getElementById('trainBtn').disabled = false;
@@ -81,28 +92,36 @@ export class StockPredictionApp {
     async evaluateModel() {
         const data = this.dataLoader.getData();
         
-        // Get predictions
-        this.testPredictions = await this.model.predict(data.X_test);
-        this.testLabels = data.y_test;
-        
-        // Compute overall accuracy
-        const evaluation = this.model.evaluate(data.X_test, data.y_test);
-        const overallAccuracy = evaluation[1].dataSync()[0];
-        
-        // Compute per-stock accuracy
-        const perStockAccuracy = this.model.computePerStockAccuracy(
-            this.testPredictions, this.testLabels, this.symbols
-        );
-        
-        this.displayResults(overallAccuracy, perStockAccuracy);
-        this.createVisualizations(perStockAccuracy);
-        
-        // Clean up
-        tf.dispose(evaluation);
+        try {
+            // Get predictions
+            this.testPredictions = await this.model.predict(data.X_test);
+            this.testLabels = data.y_test;
+            
+            // Compute overall accuracy
+            const evaluation = this.model.evaluate(data.X_test, data.y_test);
+            const overallAccuracy = evaluation[1].dataSync()[0];
+            
+            // Compute per-stock accuracy
+            const perStockAccuracy = this.model.computePerStockAccuracy(
+                this.testPredictions, this.testLabels, this.symbols
+            );
+            
+            this.displayResults(overallAccuracy, perStockAccuracy);
+            this.createVisualizations(perStockAccuracy);
+            
+            // Clean up
+            tf.dispose(evaluation);
+            
+        } catch (error) {
+            this.updateStatus(`Evaluation error: ${error.message}`);
+            console.error('Evaluation error:', error);
+        }
     }
 
     displayResults(overallAccuracy, perStockAccuracy) {
         const resultsDiv = document.getElementById('results');
+        if (!resultsDiv) return;
+        
         resultsDiv.innerHTML = `
             <h3>Model Results</h3>
             <p><strong>Overall Test Accuracy:</strong> ${(overallAccuracy * 100).toFixed(2)}%</p>
@@ -114,7 +133,8 @@ export class StockPredictionApp {
         
         let accuracyHTML = '<h4>Per-Stock Accuracy (Sorted)</h4><ul>';
         sortedAccuracies.forEach(([symbol, accuracy]) => {
-            accuracyHTML += `<li>${symbol}: ${(accuracy * 100).toFixed(2)}%</li>`;
+            const accuracyPercent = (accuracy * 100).toFixed(2);
+            accuracyHTML += `<li>${symbol}: ${accuracyPercent}%</li>`;
         });
         accuracyHTML += '</ul>';
         
@@ -128,6 +148,8 @@ export class StockPredictionApp {
 
     createAccuracyBarChart(perStockAccuracy) {
         const canvas = document.getElementById('accuracyChart');
+        if (!canvas) return;
+        
         const ctx = canvas.getContext('2d');
         
         // Sort stocks by accuracy
@@ -148,7 +170,7 @@ export class StockPredictionApp {
         
         // Draw bars
         const barHeight = height / sortedStocks.length;
-        const maxAccuracy = Math.max(...Object.values(perStockAccuracy));
+        const maxAccuracy = Math.max(...Object.values(perStockAccuracy)) || 1;
         
         sortedStocks.forEach(([symbol, accuracy], index) => {
             const barWidth = (accuracy / maxAccuracy) * width;
@@ -180,6 +202,8 @@ export class StockPredictionApp {
 
     createPredictionTimelines() {
         const container = document.getElementById('timelineContainer');
+        if (!container || !this.testPredictions || !this.testLabels) return;
+        
         container.innerHTML = '<h4>Prediction Timelines (Sample of Test Data)</h4>';
         
         // Get a subset of test samples for visualization
@@ -187,7 +211,7 @@ export class StockPredictionApp {
         const trueData = this.testLabels.arraySync();
         
         // Show timeline for first 3 stocks, first 20 test samples
-        const stocksToShow = this.symbols.slice(0, 3);
+        const stocksToShow = this.symbols.slice(0, Math.min(3, this.symbols.length));
         const samplesToShow = Math.min(20, predData.length);
         
         stocksToShow.forEach(symbol => {
@@ -230,10 +254,12 @@ export class StockPredictionApp {
                 ctx.arc(x, y, radius, 0, 2 * Math.PI);
                 ctx.fill();
                 
-                // Draw day indicator
-                ctx.fillStyle = '#666';
-                ctx.font = '8px Arial';
-                ctx.fillText(`D${day + 1}`, x - 5, y + 15);
+                // Draw day indicator for first sample only
+                if (sampleIdx === 0) {
+                    ctx.fillStyle = '#666';
+                    ctx.font = '8px Arial';
+                    ctx.fillText(`D${day + 1}`, x - 5, y + 15);
+                }
             }
         }
         
@@ -245,16 +271,33 @@ export class StockPredictionApp {
         ctx.fillText('● Wrong', 80, 15);
     }
 
+    updateTrainingProgress(detail) {
+        const progressBar = document.getElementById('progressBar');
+        if (progressBar) {
+            const progress = (detail.epoch / detail.epochs) * 100;
+            progressBar.style.width = `${progress}%`;
+        }
+        
+        this.updateStatus(`Training: Epoch ${detail.epoch}/${detail.epochs} - Loss: ${detail.loss.toFixed(4)}, Acc: ${detail.accuracy.toFixed(4)}`);
+    }
+
     updateStatus(message) {
-        document.getElementById('status').textContent = message;
+        const statusElement = document.getElementById('status');
+        if (statusElement) {
+            statusElement.textContent = message;
+        }
         console.log(message);
     }
 
     dispose() {
         this.dataLoader.dispose();
         this.model.dispose();
-        if (this.testPredictions) this.testPredictions.dispose();
-        if (this.testLabels) this.testLabels.dispose();
+        if (this.testPredictions && !this.testPredictions.isDisposed) {
+            this.testPredictions.dispose();
+        }
+        if (this.testLabels && !this.testLabels.isDisposed) {
+            this.testLabels.dispose();
+        }
     }
 }
 
