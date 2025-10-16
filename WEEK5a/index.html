@@ -2,24 +2,24 @@
 <html lang="en">
 <head>
   <meta charset="UTF-8">
-  <title>Stock Prediction Demo (RNN)</title>
+  <title>Hybrid RNN + GRU Stock Prediction Demo</title>
   <script src="https://cdn.jsdelivr.net/npm/@tensorflow/tfjs@4.22.0/dist/tf.min.js"></script>
   <script src="https://cdn.jsdelivr.net/npm/chart.js"></script>
   <style>
-    body { font-family: Arial; background: #fafafa; margin: 20px; }
-    .container { max-width: 1100px; margin: auto; }
-    button { margin: 5px; padding: 10px; }
-    progress { width: 100%; margin: 10px 0; }
-    .stock-chart { margin: 20px 0; }
+    body{font-family:Arial;background:#fafafa;margin:20px;}
+    .container{max-width:1100px;margin:auto;}
+    button{margin:5px;padding:10px;}
+    progress{width:100%;margin:10px 0;}
+    .stock-chart{margin:20px 0;}
   </style>
 </head>
 <body>
   <div class="container">
-    <h1>📈 Multi-Stock RNN Prediction Demo</h1>
+    <h1>📈 Hybrid RNN + GRU Stock Prediction Demo</h1>
     <input type="file" id="csvFile" accept=".csv">
     <button id="trainBtn" disabled>Train Model</button>
     <button id="predictBtn" disabled>Run Prediction</button>
-    <p id="status">Waiting for CSV...</p>
+    <p id="status">Waiting for CSV…</p>
     <progress id="trainingProgress" value="0" max="100"></progress>
 
     <h3>Stock Accuracy Ranking</h3>
