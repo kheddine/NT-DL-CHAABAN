@@ -44,7 +44,16 @@ export class DataLoader {
             const values = lines[i].split(',').map(v => v.trim());
             const row = {};
             headers.forEach((header, index) => {
-                row[header] = values[index];
+                let value = values[index];
+                // Handle numeric values
+                if (header === 'Open' || header === 'Close') {
+                    value = parseFloat(value);
+                    if (isNaN(value)) {
+                        console.warn(`Invalid numeric value in ${header}: ${values[index]}`);
+                        value = 0;
+                    }
+                }
+                row[header] = value;
             });
             data.push(row);
         }
@@ -58,9 +67,11 @@ export class DataLoader {
         this.symbols = [...new Set(this.data.map(row => row.Symbol))].sort();
         this.dates = [...new Set(this.data.map(row => row.Date))].sort();
         
-        if (this.symbols.length !== 10) {
-            console.warn(`Expected 10 stocks, found ${this.symbols.length}`);
+        if (this.symbols.length === 0) {
+            throw new Error('No valid symbols found in CSV');
         }
+
+        console.log(`Processing ${this.symbols.length} stocks with ${this.dates.length} dates`);
 
         // Pivot data: date × symbol → features
         this.pivotedData = {};
@@ -70,8 +81,8 @@ export class DataLoader {
                 const row = this.data.find(r => r.Date === date && r.Symbol === symbol);
                 if (row) {
                     this.pivotedData[date][symbol] = {
-                        Open: parseFloat(row.Open),
-                        Close: parseFloat(row.Close)
+                        Open: row.Open,
+                        Close: row.Close
                     };
                 }
             });
@@ -86,9 +97,13 @@ export class DataLoader {
 
         // Calculate min-max per stock
         this.symbols.forEach(symbol => {
-            const opens = this.dates.map(date => this.pivotedData[date]?.[symbol]?.Open).filter(v => v != null);
-            const closes = this.dates.map(date => this.pivotedData[date]?.[symbol]?.Close).filter(v => v != null);
+            const opens = this.dates.map(date => this.pivotedData[date]?.[symbol]?.Open).filter(v => v != null && !isNaN(v));
+            const closes = this.dates.map(date => this.pivotedData[date]?.[symbol]?.Close).filter(v => v != null && !isNaN(v));
             
+            if (opens.length === 0 || closes.length === 0) {
+                throw new Error(`No valid data for stock ${symbol}`);
+            }
+
             this.minMax[symbol] = {
                 Open: { min: Math.min(...opens), max: Math.max(...opens) },
                 Close: { min: Math.min(...closes), max: Math.max(...closes) }
@@ -101,11 +116,12 @@ export class DataLoader {
             this.symbols.forEach(symbol => {
                 const data = this.pivotedData[date][symbol];
                 if (data) {
+                    const openRange = this.minMax[symbol].Open.max - this.minMax[symbol].Open.min;
+                    const closeRange = this.minMax[symbol].Close.max - this.minMax[symbol].Close.min;
+                    
                     this.normalizedData[date][symbol] = {
-                        Open: (data.Open - this.minMax[symbol].Open.min) / 
-                              (this.minMax[symbol].Open.max - this.minMax[symbol].Open.min),
-                        Close: (data.Close - this.minMax[symbol].Close.min) / 
-                               (this.minMax[symbol].Close.max - this.minMax[symbol].Close.min)
+                        Open: openRange === 0 ? 0.5 : (data.Open - this.minMax[symbol].Open.min) / openRange,
+                        Close: closeRange === 0 ? 0.5 : (data.Close - this.minMax[symbol].Close.min) / closeRange
                     };
                 }
             });
@@ -115,7 +131,15 @@ export class DataLoader {
     createSamples(sequenceLength = 12, predictionHorizon = 3) {
         const samples = [];
         const targets = [];
+        
+        // Ensure we have enough data
+        if (this.dates.length <= sequenceLength + predictionHorizon) {
+            throw new Error(`Insufficient data: need more than ${sequenceLength + predictionHorizon} days`);
+        }
+
         const validDates = this.dates.slice(sequenceLength, this.dates.length - predictionHorizon);
+
+        console.log(`Creating samples from ${validDates.length} valid dates`);
 
         validDates.forEach((date, dateIndex) => {
             const dateIdx = this.dates.indexOf(date);
@@ -128,7 +152,12 @@ export class DataLoader {
                 
                 this.symbols.forEach(symbol => {
                     const stockData = this.normalizedData[seqDate][symbol];
-                    features.push(stockData.Open, stockData.Close);
+                    if (stockData) {
+                        features.push(stockData.Open, stockData.Close);
+                    } else {
+                        // Fill with zeros if data missing
+                        features.push(0, 0);
+                    }
                 });
                 
                 inputSequence.push(features);
@@ -147,15 +176,28 @@ export class DataLoader {
             for (let offset = 1; offset <= predictionHorizon; offset++) {
                 const futureDate = this.dates[dateIdx + offset];
                 this.symbols.forEach(symbol => {
-                    const futureClose = this.pivotedData[futureDate][symbol].Close;
+                    const futureData = this.pivotedData[futureDate][symbol];
                     const currentClose = currentClosePrices[symbol];
-                    targetLabels.push(futureClose > currentClose ? 1 : 0);
+                    
+                    if (futureData && currentClose !== undefined) {
+                        const futureClose = futureData.Close;
+                        targetLabels.push(futureClose > currentClose ? 1 : 0);
+                    } else {
+                        // Default to 0 if data missing
+                        targetLabels.push(0);
+                    }
                 });
             }
 
             samples.push(inputSequence);
             targets.push(targetLabels);
         });
+
+        if (samples.length === 0) {
+            throw new Error('No valid samples created');
+        }
+
+        console.log(`Created ${samples.length} samples with ${targets[0].length} targets each`);
 
         // Convert to tensors
         const X = tf.tensor3d(samples);
@@ -168,6 +210,8 @@ export class DataLoader {
         this.X_test = X.slice(splitIdx);
         this.y_train = y.slice(0, splitIdx);
         this.y_test = y.slice(splitIdx);
+
+        console.log(`Training samples: ${this.X_train.shape[0]}, Test samples: ${this.X_test.shape[0]}`);
 
         // Clean up intermediate tensors
         tf.dispose([X, y]);
@@ -184,9 +228,11 @@ export class DataLoader {
     }
 
     dispose() {
-        if (this.X_train) this.X_train.dispose();
-        if (this.y_train) this.y_train.dispose();
-        if (this.X_test) this.X_test.dispose();
-        if (this.y_test) this.y_test.dispose();
+        const tensors = [this.X_train, this.y_train, this.X_test, this.y_test];
+        tensors.forEach(tensor => {
+            if (tensor && !tensor.isDisposed) {
+                tensor.dispose();
+            }
+        });
     }
 }
