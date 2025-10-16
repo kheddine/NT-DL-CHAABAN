@@ -1,88 +1,32 @@
-<!-- index.html -->
 <!DOCTYPE html>
 <html lang="en">
 <head>
-  <meta charset="UTF-8" />
-  <meta name="viewport" content="width=device-width, initial-scale=1.0" />
-  <title>Stock Prediction CNN+GRU</title>
+  <meta charset="UTF-8">
+  <title>Stock Prediction Demo (RNN)</title>
   <script src="https://cdn.jsdelivr.net/npm/@tensorflow/tfjs@4.22.0/dist/tf.min.js"></script>
-  <script src="https://cdn.jsdelivr.net/npm/chart.js@4.4.1/dist/chart.umd.min.js"></script>
+  <script src="https://cdn.jsdelivr.net/npm/chart.js"></script>
   <style>
-    body {
-      margin: 0;
-      font-family: Arial, sans-serif;
-      background: #121212;
-      color: #e0e0e0;
-      display: flex;
-      flex-direction: column;
-      align-items: center;
-      padding: 1rem;
-    }
-    header {
-      text-align: center;
-      margin-bottom: 1rem;
-    }
-    main {
-      display: grid;
-      grid-template-columns: 1fr 1fr;
-      gap: 1rem;
-      width: 100%;
-      max-width: 1200px;
-    }
-    canvas {
-      background: #1e1e1e;
-      border-radius: 0.5rem;
-      padding: 0.5rem;
-    }
-    #timelineContainer > canvas {
-      margin-top: 1rem;
-      width: 100%;
-    }
-    #controls {
-      display: flex;
-      gap: 1rem;
-      align-items: center;
-      margin-bottom: 1rem;
-      flex-wrap: wrap;
-    }
-    button, input[type="file"] {
-      background: #333;
-      color: #fff;
-      border: none;
-      border-radius: 0.3rem;
-      padding: 0.5rem 1rem;
-      cursor: pointer;
-    }
-    button:hover, input[type="file"]:hover {
-      background: #555;
-    }
-    progress {
-      width: 100%;
-      height: 1rem;
-      margin-top: 0.5rem;
-    }
+    body { font-family: Arial; padding: 20px; background: #fafafa; }
+    .container { max-width: 1200px; margin: auto; }
+    .stock-chart { margin: 20px 0; }
   </style>
 </head>
 <body>
-  <header>
-    <h1>📈 Stock Prediction (CNN + GRU)</h1>
-  </header>
-
-  <section id="controls">
+  <div class="container">
+    <h1>📈 Multi-Stock RNN Prediction Demo</h1>
+    <p>Upload your CSV (Date, Symbol, Open, High, Low, Close for 10 stocks):</p>
     <input type="file" id="csvFile" accept=".csv" />
     <button id="trainBtn" disabled>Train Model</button>
     <button id="predictBtn" disabled>Run Prediction</button>
-  </section>
+    <p id="status">Waiting for file...</p>
+    <progress id="trainingProgress" value="0" max="100" style="width:100%"></progress>
 
-  <p id="status">Upload a CSV to begin.</p>
-  <progress id="trainingProgress" value="0" max="1"></progress>
+    <h3>Stock Accuracy Ranking</h3>
+    <canvas id="accuracyChart"></canvas>
 
-  <main>
-    <div>
-      <canvas id="accuracyChart"></canvas>
-    </div>
+    <h3>Prediction Timelines</h3>
     <div id="timelineContainer"></div>
-  </main>
+  </div>
 
   <script type="module" src="./app.js"></script>
 </body>
