@@ -1,125 +1,172 @@
-// rnn_gru.js
-// Hybrid SimpleRNN + GRU with early stopping and robust training start.
+/**
+ * rnn_gru.js
+ * Defines the hybrid SimpleRNN + GRU model along with helper methods for
+ * backend initialisation, training, and evaluation analytics.
+ */
 
-export class RNN_GRU_Model {
-  constructor(inputShape, outputSize) {
-    this.inputShape = inputShape;   // [30, 4*stocks]
-    this.outputSize = outputSize;   // 3 * stocks
-    this.model = null;
+import { DataConstants } from './data-loader.js';
+
+const DEFAULT_EPOCHS = 50;
+const DEFAULT_BATCH_SIZE = 64;
+
+/**
+ * Attempt to initialise the WebGL backend, falling back to CPU when required.
+ * @param {(message: string) => void} statusCb
+ */
+export async function ensureBackend(statusCb) {
+  const desiredBackends = ['webgl', 'cpu'];
+  for (const backend of desiredBackends) {
+    try {
+      await tf.setBackend(backend);
+      await tf.ready();
+      statusCb?.(`Using TensorFlow.js backend: ${backend}`);
+      return backend;
+    } catch (err) {
+      console.warn(`Failed to initialise backend ${backend}`, err);
+    }
+  }
+  throw new Error('Unable to initialise any TensorFlow.js backend.');
+}
+
+/**
+ * Builds the hybrid SimpleRNN + GRU model for a given number of stocks.
+ * @param {number} numStocks
+ */
+export function createRNNGRUModel(numStocks) {
+  const featureSize = numStocks * DataConstants.FEATURES_PER_STOCK;
+  const outputSize = numStocks * DataConstants.FORECAST_HORIZON;
+
+  const model = tf.sequential({ layers: [] });
+  model.add(
+    tf.layers.simpleRNN({
+      units: 64,
+      returnSequences: true,
+      inputShape: [DataConstants.INPUT_WINDOW, featureSize],
+      kernelInitializer: 'glorotUniform',
+    })
+  );
+  model.add(tf.layers.dropout({ rate: 0.2 }));
+  model.add(tf.layers.gru({ units: 64, returnSequences: false }));
+  model.add(tf.layers.dropout({ rate: 0.2 }));
+  model.add(tf.layers.dense({ units: 64, activation: 'relu' }));
+  model.add(tf.layers.dense({ units: outputSize, activation: 'sigmoid' }));
+
+  model.compile({
+    optimizer: tf.train.adam(0.001),
+    loss: 'binaryCrossentropy',
+    metrics: ['binaryAccuracy'],
+  });
+
+  return model;
+}
+
+/**
+ * Train the provided model.
+ * @param {tf.Sequential} model
+ * @param {{
+ *  X_train: tf.Tensor,
+ *  y_train: tf.Tensor,
+ *  X_val?: tf.Tensor|null,
+ *  y_val?: tf.Tensor|null
+ * }} dataset
+ * @param {{
+ *  epochs?: number,
+ *  batchSize?: number,
+ *  onEpochBegin?: (epoch: number, logs: tf.Logs) => void,
+ *  onEpochEnd?: (epoch: number, logs: tf.Logs) => void,
+ * }} options
+ */
+export async function trainModel(model, dataset, options = {}) {
+  const { X_train, y_train, X_val, y_val } = dataset;
+  if (!X_train || !y_train) {
+    throw new Error('Training tensors are missing.');
   }
 
-  async ensureBackend() {
-    // Try WebGL; if it fails, fall back to CPU so training still starts.
-    try {
-      await tf.setBackend('webgl');
-      await tf.ready();
-      console.log('TF backend:', tf.getBackend());
-    } catch (e) {
-      console.warn('WebGL unavailable, falling back to CPU.', e);
-      await tf.setBackend('cpu');
-      await tf.ready();
+  const inputShape = X_train.shape;
+  if (inputShape.length !== 3 || inputShape[1] !== DataConstants.INPUT_WINDOW) {
+    throw new Error('Training data does not have the expected 3D shape.');
+  }
+
+  const epochs = options.epochs ?? DEFAULT_EPOCHS;
+  const batchSize = options.batchSize ?? DEFAULT_BATCH_SIZE;
+
+  const callbacks = [];
+  const earlyStopping = tf.callbacks.earlyStopping({
+    patience: 6,
+    restoreBestWeights: true,
+    monitor: X_val && y_val ? 'val_binaryAccuracy' : 'binaryAccuracy',
+    mode: 'max',
+  });
+  callbacks.push(earlyStopping);
+
+  if (options.onEpochBegin || options.onEpochEnd) {
+    callbacks.push({
+      onEpochBegin: options.onEpochBegin,
+      onEpochEnd: options.onEpochEnd,
+    });
+  }
+
+  const history = await model.fit(X_train, y_train, {
+    epochs,
+    batchSize,
+    shuffle: true,
+    validationData: X_val && y_val ? [X_val, y_val] : undefined,
+    callbacks,
+  });
+
+  return history;
+}
+
+/**
+ * Evaluate the model on the test set and compute per-stock accuracies.
+ * @param {tf.Sequential} model
+ * @param {{ X_test: tf.Tensor, y_test: tf.Tensor, symbols: string[] }} dataset
+ */
+export async function evaluateModel(model, dataset) {
+  const { X_test, y_test, symbols } = dataset;
+  if (!X_test || !y_test) {
+    throw new Error('Testing tensors are missing.');
+  }
+
+  const numStocks = symbols.length;
+  const horizon = DataConstants.FORECAST_HORIZON;
+
+  const predsTensor = model.predict(X_test, { batchSize: DEFAULT_BATCH_SIZE });
+  const [preds, truths] = await Promise.all([predsTensor.array(), y_test.array()]);
+  predsTensor.dispose();
+
+  const stockAccuracies = {};
+  const stockTimeline = {};
+  const correctCounts = new Array(numStocks).fill(0);
+  const totalCounts = new Array(numStocks).fill(0);
+
+  for (let stockIdx = 0; stockIdx < numStocks; stockIdx++) {
+    const symbol = symbols[stockIdx];
+    stockTimeline[symbol] = [];
+  }
+
+  for (let sampleIdx = 0; sampleIdx < preds.length; sampleIdx++) {
+    for (let stockIdx = 0; stockIdx < numStocks; stockIdx++) {
+      for (let step = 0; step < horizon; step++) {
+        const idx = stockIdx * horizon + step;
+        const predProb = preds[sampleIdx][idx];
+        const truth = truths[sampleIdx][idx];
+        const pred = predProb >= 0.5 ? 1 : 0;
+        const correct = pred === truth ? 1 : 0;
+        correctCounts[stockIdx] += correct;
+        totalCounts[stockIdx] += 1;
+        stockTimeline[symbols[stockIdx]].push({ truth, pred, correct });
+      }
     }
   }
 
-  buildModel() {
-    this.model = tf.sequential({
-      layers: [
-        tf.layers.simpleRNN({ units: 64, returnSequences: true, inputShape: this.inputShape }),
-        tf.layers.dropout({ rate: 0.2 }),
-        tf.layers.gru({ units: 64 }),
-        tf.layers.dropout({ rate: 0.2 }),
-        tf.layers.dense({ units: 64, activation: 'relu' }),
-        tf.layers.dense({ units: this.outputSize, activation: 'sigmoid' })
-      ]
-    });
-
-    this.model.compile({
-      optimizer: tf.train.adam(0.001),
-      loss: 'binaryCrossentropy',
-      metrics: ['binaryAccuracy']
-    });
-
-    return this.model;
+  for (let stockIdx = 0; stockIdx < numStocks; stockIdx++) {
+    stockAccuracies[symbols[stockIdx]] =
+      totalCounts[stockIdx] === 0 ? 0 : correctCounts[stockIdx] / totalCounts[stockIdx];
   }
 
-  async train(Xtr, ytr, Xv, yv, epochs = 50, batchSize = 64) {
-    console.log('Train shapes:', Xtr.shape, ytr.shape);
-    console.log('Val shapes:', Xv.shape, yv.shape);
-
-    await this.ensureBackend();
-    if (!this.model) this.buildModel();
-
-    const hasVal = (Xv?.shape?.[0] || 0) > 0 && (yv?.shape?.[0] || 0) > 0;
-    const valData = hasVal ? [Xv, yv] : null;
-    if (!hasVal) console.warn('⚠️ No validation split; training without val.');
-
-    const earlyStop = tf.callbacks.earlyStopping({
-      monitor: hasVal ? 'val_loss' : 'loss',
-      patience: 6,
-      restoreBestWeights: true
-    });
-
-    const cb = {
-      onEpochBegin: async (epoch) => {
-        console.log(`Epoch ${epoch + 1}/${epochs} start`);
-        await tf.nextFrame();
-      },
-      onEpochEnd: async (epoch, logs) => {
-        const p = document.getElementById('trainingProgress');
-        const s = document.getElementById('status');
-        if (p) p.value = ((epoch + 1) / epochs) * 100;
-        if (s) {
-          const base = `Epoch ${epoch + 1}/${epochs} | loss: ${logs.loss.toFixed(4)} | acc: ${(logs.binaryAccuracy * 100).toFixed(1)}%`;
-          s.textContent = hasVal && logs.val_binaryAccuracy != null
-            ? `${base} | val_acc: ${(logs.val_binaryAccuracy * 100).toFixed(1)}%`
-            : base;
-        }
-        await tf.nextFrame();
-      }
-    };
-
-    console.log('🚀 Starting model.fit...');
-    const hist = await this.model.fit(Xtr, ytr, {
-      epochs,
-      batchSize,
-      shuffle: true,
-      validationData: valData,
-      callbacks: [earlyStop, cb]
-    });
-    console.log('✅ Training finished');
-    return hist;
-  }
-
-  predict(X) {
-    const out = this.model.predict(X);
-    // tfjs predict may return a Tensor or array of Tensors depending on model; normalize to Tensor.
-    if (Array.isArray(out)) return out[0];
-    return out;
-  }
-
-  evaluate(yTrue, yPred, symbols, horizon = 3) {
-    const t = yTrue.arraySync();
-    const p = yPred.arraySync();
-    const acc = {};
-    const detail = {};
-
-    symbols.forEach((sym, si) => {
-      let correct = 0, total = 0;
-      const preds = [];
-      for (let i = 0; i < t.length; i++) {
-        for (let h = 0; h < horizon; h++) {
-          const idx = si * horizon + h;
-          const truth = t[i][idx];
-          const pred  = p[i][idx] > 0.5 ? 1 : 0;
-          preds.push({ truth, pred, correct: truth === pred });
-          if (truth === pred) correct++;
-          total++;
-        }
-      }
-      acc[sym] = total ? correct / total : 0;
-      detail[sym] = preds;
-    });
-
-    return { stockAccuracies: acc, stockPredictions: detail };
-  }
+  return {
+    stockAccuracies,
+    stockPredictions: stockTimeline,
+  };
 }
