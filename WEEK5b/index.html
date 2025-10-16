@@ -50,6 +50,8 @@
             background-color: #e9f7fe;
             border-left: 4px solid #007cba;
             margin: 10px 0;
+            font-family: monospace;
+            white-space: pre-wrap;
         }
         .timeline {
             margin: 20px 0;
@@ -73,6 +75,17 @@
             height: 100%;
             background-color: #4CAF50;
             transition: width 0.3s ease;
+            width: 0%;
+        }
+        #results ul {
+            columns: 2;
+            -webkit-columns: 2;
+            -moz-columns: 2;
+        }
+        #results li {
+            break-inside: avoid;
+            page-break-inside: avoid;
+            -webkit-column-break-inside: avoid;
         }
     </style>
 </head>
@@ -84,14 +97,14 @@
         <div class="upload-section">
             <h2>1. Upload Data</h2>
             <input type="file" id="csvFile" accept=".csv">
-            <p><small>Upload CSV with columns: Date, Symbol, Open, Close</small></p>
+            <p><small>Upload CSV with columns: Date, Symbol, Open, Close (10 S&P 500 stocks recommended)</small></p>
         </div>
         
         <div class="training-section">
             <h2>2. Train Model</h2>
             <button id="trainBtn" disabled>Start Training</button>
             <div class="progress-bar">
-                <div class="progress-fill" id="progressBar" style="width: 0%"></div>
+                <div class="progress-fill" id="progressBar"></div>
             </div>
             <div class="status" id="status">Ready to load data...</div>
         </div>
@@ -109,8 +122,27 @@
 
     <script type="module">
         import { StockPredictionApp } from './app.js';
+        
+        // Error handling for module loading
+        window.addEventListener('error', (event) => {
+            console.error('Global error:', event.error);
+            const status = document.getElementById('status');
+            if (status) {
+                status.textContent = `Error: ${event.error.message}`;
+            }
+        });
+
         document.addEventListener('DOMContentLoaded', () => {
-            window.app = new StockPredictionApp();
+            try {
+                window.app = new StockPredictionApp();
+                console.log('App initialized successfully');
+            } catch (error) {
+                console.error('App initialization failed:', error);
+                const status = document.getElementById('status');
+                if (status) {
+                    status.textContent = `Initialization error: ${error.message}`;
+                }
+            }
         });
     </script>
 </body>
