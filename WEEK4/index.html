@@ -3,7 +3,7 @@
 <head>
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
-    <title>MNIST CSV Viewer</title>
+    <title>MNIST Data Viewer</title>
     <script src="https://cdn.jsdelivr.net/npm/@tensorflow/tfjs@4.10.0/dist/tf.min.js"></script>
     <style>
         body {
@@ -18,6 +18,22 @@
             padding: 20px;
             border-radius: 10px;
             box-shadow: 0 2px 10px rgba(0,0,0,0.1);
+        }
+        .file-inputs {
+            display: grid;
+            grid-template-columns: 1fr 1fr;
+            gap: 20px;
+            margin-bottom: 20px;
+        }
+        .file-section {
+            padding: 15px;
+            background: #e9ecef;
+            border-radius: 5px;
+            border: 2px solid #dee2e6;
+        }
+        .file-section.active {
+            border-color: #007bff;
+            background: #d1ecf1;
         }
         .controls {
             margin-bottom: 20px;
@@ -48,6 +64,15 @@
             font-weight: bold;
             color: #333;
         }
+        .dataset-label {
+            background: #007bff;
+            color: white;
+            padding: 2px 8px;
+            border-radius: 3px;
+            font-size: 12px;
+            margin-bottom: 5px;
+            display: inline-block;
+        }
         button {
             padding: 10px 20px;
             margin: 5px;
@@ -60,11 +85,22 @@
         button:hover {
             background: #0056b3;
         }
+        button:disabled {
+            background: #6c757d;
+            cursor: not-allowed;
+        }
         .stats {
             margin: 10px 0;
             padding: 10px;
-            background: #d4edda;
             border-radius: 5px;
+        }
+        .stats.training {
+            background: #d4edda;
+            border: 1px solid #c3e6cb;
+        }
+        .stats.testing {
+            background: #fff3cd;
+            border: 1px solid #ffeaa7;
         }
         .loading {
             color: #6c757d;
@@ -72,57 +108,180 @@
         }
         input[type="file"] {
             margin: 10px 0;
+            width: 100%;
+        }
+        .data-status {
+            display: flex;
+            gap: 20px;
+            margin-bottom: 15px;
+        }
+        .status-item {
+            padding: 8px 12px;
+            border-radius: 5px;
+            font-weight: bold;
+        }
+        .status-loaded {
+            background: #28a745;
+            color: white;
+        }
+        .status-not-loaded {
+            background: #dc3545;
+            color: white;
+        }
+        h3 {
+            margin-top: 0;
+            color: #495057;
         }
     </style>
 </head>
 <body>
     <div class="container">
-        <h1>MNIST CSV Data Viewer</h1>
+        <h1>MNIST Data Viewer</h1>
         
+        <div class="data-status">
+            <div class="status-item" id="trainingStatus" class="status-not-loaded">
+                Training Data: Not Loaded
+            </div>
+            <div class="status-item" id="testingStatus" class="status-not-loaded">
+                Testing Data: Not Loaded
+            </div>
+        </div>
+
+        <div class="file-inputs">
+            <div class="file-section" id="trainingSection">
+                <h3>Training Data</h3>
+                <input type="file" id="trainingFile" accept=".csv">
+                <button onclick="loadTrainingData()">Load Training CSV</button>
+                <div class="stats training" id="trainingStats">
+                    No training data loaded
+                </div>
+            </div>
+
+            <div class="file-section" id="testingSection">
+                <h3>Testing Data</h3>
+                <input type="file" id="testingFile" accept=".csv">
+                <button onclick="loadTestingData()">Load Testing CSV</button>
+                <div class="stats testing" id="testingStats">
+                    No testing data loaded
+                </div>
+            </div>
+        </div>
+
         <div class="controls">
-            <input type="file" id="csvFile" accept=".csv">
-            <button onclick="loadCSVFile()">Load CSV File</button>
-            <button onclick="displaySampleImages()">Show Sample Images</button>
-            <button onclick="clearDisplay()">Clear Display</button>
-            <div class="stats" id="stats">Select a CSV file to begin</div>
+            <button onclick="displayTrainingImages()" id="showTrainingBtn" disabled>Show Training Images</button>
+            <button onclick="displayTestingImages()" id="showTestingBtn" disabled>Show Testing Images</button>
+            <button onclick="showDataComparison()" id="compareBtn" disabled>Compare Datasets</button>
+            <button onclick="clearAllData()">Clear All Data</button>
+            <div id="globalStats" class="stats" style="background: #e2e3e5;"></div>
         </div>
 
         <div id="loading" class="loading" style="display: none;">
-            Loading and processing data...
+            Processing data...
         </div>
 
         <div id="imageGrid" class="image-grid"></div>
     </div>
 
     <script>
-        // Global variables to store the loaded data
-        let imagesTensor = null;
-        let labelsTensor = null;
-        let imagesArray = [];
-        let labelsArray = [];
+        // Global variables for both datasets
+        let trainingData = {
+            imagesTensor: null,
+            labelsTensor: null,
+            imagesArray: [],
+            labelsArray: [],
+            stats: { samples: 0, shape: null }
+        };
 
-        // Function to load and parse CSV file
-        async function loadCSVFile() {
-            const fileInput = document.getElementById('csvFile');
+        let testingData = {
+            imagesTensor: null,
+            labelsTensor: null,
+            imagesArray: [],
+            labelsArray: [],
+            stats: { samples: 0, shape: null }
+        };
+
+        // Update status displays
+        function updateStatusDisplays() {
+            const trainingLoaded = trainingData.stats.samples > 0;
+            const testingLoaded = testingData.stats.samples > 0;
+
+            // Update status indicators
+            document.getElementById('trainingStatus').textContent = 
+                `Training Data: ${trainingLoaded ? `Loaded (${trainingData.stats.samples} samples)` : 'Not Loaded'}`;
+            document.getElementById('trainingStatus').className = 
+                `status-item ${trainingLoaded ? 'status-loaded' : 'status-not-loaded'}`;
+
+            document.getElementById('testingStatus').textContent = 
+                `Testing Data: ${testingLoaded ? `Loaded (${testingData.stats.samples} samples)` : 'Not Loaded'}`;
+            document.getElementById('testingStatus').className = 
+                `status-item ${testingLoaded ? 'status-loaded' : 'status-not-loaded'}`;
+
+            // Enable/disable buttons
+            document.getElementById('showTrainingBtn').disabled = !trainingLoaded;
+            document.getElementById('showTestingBtn').disabled = !testingLoaded;
+            document.getElementById('compareBtn').disabled = !(trainingLoaded && testingLoaded);
+
+            // Update global stats
+            const globalStats = document.getElementById('globalStats');
+            if (trainingLoaded && testingLoaded) {
+                globalStats.innerHTML = `
+                    <strong>Both datasets loaded!</strong><br>
+                    Training: ${trainingData.stats.samples} samples<br>
+                    Testing: ${testingData.stats.samples} samples<br>
+                    Total: ${trainingData.stats.samples + testingData.stats.samples} samples
+                `;
+            } else if (trainingLoaded) {
+                globalStats.innerHTML = `Training data loaded: ${trainingData.stats.samples} samples`;
+            } else if (testingLoaded) {
+                globalStats.innerHTML = `Testing data loaded: ${testingData.stats.samples} samples`;
+            } else {
+                globalStats.innerHTML = 'Load training and testing CSV files to begin';
+            }
+        }
+
+        // Load training data
+        async function loadTrainingData() {
+            const fileInput = document.getElementById('trainingFile');
             const file = fileInput.files[0];
             
             if (!file) {
-                alert('Please select a CSV file');
+                alert('Please select a training CSV file');
                 return;
             }
 
+            await loadDataset(file, trainingData, 'training');
+        }
+
+        // Load testing data
+        async function loadTestingData() {
+            const fileInput = document.getElementById('testingFile');
+            const file = fileInput.files[0];
+            
+            if (!file) {
+                alert('Please select a testing CSV file');
+                return;
+            }
+
+            await loadDataset(file, testingData, 'testing');
+        }
+
+        // Generic function to load any dataset
+        async function loadDataset(file, dataset, datasetType) {
             try {
                 document.getElementById('loading').style.display = 'block';
-                document.getElementById('stats').innerHTML = 'Reading CSV file...';
-                
+                const statsElement = document.getElementById(datasetType + 'Stats');
+                statsElement.innerHTML = `Loading ${datasetType} data...`;
+
                 const text = await readFileAsText(file);
-                await processCSVData(text);
+                await processCSVData(text, dataset, datasetType);
                 
             } catch (error) {
-                console.error('Error loading CSV:', error);
-                document.getElementById('stats').innerHTML = `Error: ${error.message}`;
+                console.error(`Error loading ${datasetType} data:`, error);
+                document.getElementById(datasetType + 'Stats').innerHTML = 
+                    `Error: ${error.message}`;
             } finally {
                 document.getElementById('loading').style.display = 'none';
+                updateStatusDisplays();
             }
         }
 
@@ -137,10 +296,10 @@
         }
 
         // Process CSV data and create tensors
-        async function processCSVData(csvText) {
+        async function processCSVData(csvText, dataset, datasetType) {
             const lines = csvText.trim().split('\n');
-            imagesArray = [];
-            labelsArray = [];
+            dataset.imagesArray = [];
+            dataset.labelsArray = [];
             
             let validSamples = 0;
             let invalidSamples = 0;
@@ -158,22 +317,21 @@
                     
                     if (values.length >= 785) { // label + 28x28 pixels
                         const label = values[0];
-                        const pixels = values.slice(1, 785); // Take exactly 784 pixels
+                        const pixels = values.slice(1, 785);
                         
-                        labelsArray.push(label);
-                        imagesArray.push(pixels);
+                        dataset.labelsArray.push(label);
+                        dataset.imagesArray.push(pixels);
                         validSamples++;
                     } else {
                         invalidSamples++;
                     }
                 } catch (error) {
                     invalidSamples++;
-                    console.warn(`Error processing line ${i}:`, error);
                 }
             }
 
             // Create proper 4D tensor structure
-            const batchSize = imagesArray.length;
+            const batchSize = dataset.imagesArray.length;
             const imageData = [];
             
             // Reshape each image to 28x28x1
@@ -183,51 +341,73 @@
                     const row = [];
                     for (let x = 0; x < 28; x++) {
                         const pixelIndex = y * 28 + x;
-                        row.push([imagesArray[i][pixelIndex] / 255.0]); // Normalize to 0-1
+                        row.push([dataset.imagesArray[i][pixelIndex] / 255.0]);
                     }
                     image.push(row);
                 }
                 imageData.push(image);
             }
 
-            // Create tensors
-            imagesTensor = tf.tensor4d(imageData, [batchSize, 28, 28, 1]);
-            labelsTensor = tf.tensor1d(labelsArray, 'int32');
+            // Clean up previous tensors
+            if (dataset.imagesTensor) dataset.imagesTensor.dispose();
+            if (dataset.labelsTensor) dataset.labelsTensor.dispose();
+
+            // Create new tensors
+            dataset.imagesTensor = tf.tensor4d(imageData, [batchSize, 28, 28, 1]);
+            dataset.labelsTensor = tf.tensor1d(dataset.labelsArray, 'int32');
+
+            // Update stats
+            dataset.stats = {
+                samples: validSamples,
+                shape: dataset.imagesTensor.shape,
+                invalidSamples: invalidSamples
+            };
 
             // Display statistics
-            document.getElementById('stats').innerHTML = `
-                Loaded ${validSamples} valid samples<br>
-                ${invalidSamples} invalid lines skipped<br>
-                Tensor shape: ${imagesTensor.shape}<br>
-                Labels shape: ${labelsTensor.shape}
+            document.getElementById(datasetType + 'Stats').innerHTML = `
+                <strong>${datasetType.toUpperCase()} DATA</strong><br>
+                Samples: ${validSamples}<br>
+                Invalid: ${invalidSamples}<br>
+                Tensor: ${dataset.imagesTensor.shape}<br>
+                Labels: ${dataset.labelsTensor.shape}
             `;
 
-            console.log('Images tensor shape:', imagesTensor.shape);
-            console.log('Labels tensor shape:', labelsTensor.shape);
-            
-            // Display first few images
-            displaySampleImages();
+            console.log(`${datasetType} data loaded:`, dataset.stats);
         }
 
-        // Display sample images
-        async function displaySampleImages() {
-            if (!imagesTensor || !labelsTensor) {
-                alert('Please load data first');
+        // Display training images
+        async function displayTrainingImages() {
+            await displayImages(trainingData, 'Training');
+        }
+
+        // Display testing images
+        async function displayTestingImages() {
+            await displayImages(testingData, 'Testing');
+        }
+
+        // Generic function to display images
+        async function displayImages(dataset, datasetName) {
+            if (!dataset.imagesTensor) {
+                alert(`${datasetName} data not loaded`);
                 return;
             }
 
             const imageGrid = document.getElementById('imageGrid');
             imageGrid.innerHTML = '';
             
-            const numSamples = Math.min(20, imagesTensor.shape[0]);
+            const numSamples = Math.min(16, dataset.stats.samples);
             
             // Get data from tensors
-            const imagesData = await imagesTensor.array();
-            const labelsData = await labelsTensor.array();
+            const imagesData = await dataset.imagesTensor.array();
+            const labelsData = await dataset.labelsTensor.array();
             
             for (let i = 0; i < numSamples; i++) {
                 const container = document.createElement('div');
                 container.className = 'digit-container';
+                
+                const datasetLabel = document.createElement('div');
+                datasetLabel.className = 'dataset-label';
+                datasetLabel.textContent = datasetName;
                 
                 const canvas = document.createElement('canvas');
                 canvas.width = 28;
@@ -236,14 +416,87 @@
                 
                 const label = document.createElement('div');
                 label.className = 'label';
-                label.textContent = `Label: ${labelsData[i]}`;
+                label.textContent = `Label: ${labelsData[i]} (${i + 1}/${numSamples})`;
                 
                 // Draw image on canvas
                 drawMNISTImage(canvas, imagesData[i]);
                 
+                container.appendChild(datasetLabel);
                 container.appendChild(canvas);
                 container.appendChild(label);
                 imageGrid.appendChild(container);
+            }
+        }
+
+        // Show comparison of both datasets
+        async function showDataComparison() {
+            if (!trainingData.imagesTensor || !testingData.imagesTensor) {
+                alert('Please load both training and testing data first');
+                return;
+            }
+
+            const imageGrid = document.getElementById('imageGrid');
+            imageGrid.innerHTML = '';
+            
+            const numSamples = Math.min(8, trainingData.stats.samples, testingData.stats.samples);
+            
+            // Get data from both datasets
+            const trainingImages = await trainingData.imagesTensor.array();
+            const trainingLabels = await trainingData.labelsTensor.array();
+            const testingImages = await testingData.imagesTensor.array();
+            const testingLabels = await testingData.labelsTensor.array();
+            
+            for (let i = 0; i < numSamples; i++) {
+                // Training image
+                const trainContainer = document.createElement('div');
+                trainContainer.className = 'digit-container';
+                
+                const trainLabel = document.createElement('div');
+                trainLabel.className = 'dataset-label';
+                trainLabel.textContent = 'Training';
+                trainLabel.style.background = '#28a745';
+                
+                const trainCanvas = document.createElement('canvas');
+                trainCanvas.width = 28;
+                trainCanvas.height = 28;
+                trainCanvas.className = 'digit-canvas';
+                
+                const trainDigitLabel = document.createElement('div');
+                trainDigitLabel.className = 'label';
+                trainDigitLabel.textContent = `Label: ${trainingLabels[i]}`;
+                
+                drawMNISTImage(trainCanvas, trainingImages[i]);
+                
+                trainContainer.appendChild(trainLabel);
+                trainContainer.appendChild(trainCanvas);
+                trainContainer.appendChild(trainDigitLabel);
+                imageGrid.appendChild(trainContainer);
+
+                // Testing image
+                const testContainer = document.createElement('div');
+                testContainer.className = 'digit-container';
+                
+                const testLabel = document.createElement('div');
+                testLabel.className = 'dataset-label';
+                testLabel.textContent = 'Testing';
+                testLabel.style.background = '#ffc107';
+                testLabel.style.color = '#000';
+                
+                const testCanvas = document.createElement('canvas');
+                testCanvas.width = 28;
+                testCanvas.height = 28;
+                testCanvas.className = 'digit-canvas';
+                
+                const testDigitLabel = document.createElement('div');
+                testDigitLabel.className = 'label';
+                testDigitLabel.textContent = `Label: ${testingLabels[i]}`;
+                
+                drawMNISTImage(testCanvas, testingImages[i]);
+                
+                testContainer.appendChild(testLabel);
+                testContainer.appendChild(testCanvas);
+                testContainer.appendChild(testDigitLabel);
+                imageGrid.appendChild(testContainer);
             }
         }
 
@@ -254,43 +507,48 @@
             
             for (let y = 0; y < 28; y++) {
                 for (let x = 0; x < 28; x++) {
-                    const pixelValue = imageData[y][x][0] * 255; // Denormalize
+                    const pixelValue = imageData[y][x][0] * 255;
                     const index = (y * 28 + x) * 4;
                     
-                    imageDataObj.data[index] = pixelValue;     // R
-                    imageDataObj.data[index + 1] = pixelValue; // G
-                    imageDataObj.data[index + 2] = pixelValue; // B
-                    imageDataObj.data[index + 3] = 255;        // A
+                    imageDataObj.data[index] = pixelValue;
+                    imageDataObj.data[index + 1] = pixelValue;
+                    imageDataObj.data[index + 2] = pixelValue;
+                    imageDataObj.data[index + 3] = 255;
                 }
             }
-            
             ctx.putImageData(imageDataObj, 0, 0);
         }
 
-        // Clear display
-        function clearDisplay() {
-            document.getElementById('imageGrid').innerHTML = '';
-            document.getElementById('stats').innerHTML = 'Display cleared';
-            
+        // Clear all data
+        function clearAllData() {
             // Clean up tensors
-            if (imagesTensor) {
-                imagesTensor.dispose();
-                imagesTensor = null;
-            }
-            if (labelsTensor) {
-                labelsTensor.dispose();
-                labelsTensor = null;
-            }
+            if (trainingData.imagesTensor) trainingData.imagesTensor.dispose();
+            if (trainingData.labelsTensor) trainingData.labelsTensor.dispose();
+            if (testingData.imagesTensor) testingData.imagesTensor.dispose();
+            if (testingData.labelsTensor) testingData.labelsTensor.dispose();
             
-            imagesArray = [];
-            labelsArray = [];
+            // Reset data
+            trainingData = { imagesTensor: null, labelsTensor: null, imagesArray: [], labelsArray: [], stats: { samples: 0 } };
+            testingData = { imagesTensor: null, labelsTensor: null, imagesArray: [], labelsArray: [], stats: { samples: 0 } };
+            
+            // Clear file inputs
+            document.getElementById('trainingFile').value = '';
+            document.getElementById('testingFile').value = '';
+            
+            // Update UI
+            document.getElementById('imageGrid').innerHTML = '';
+            document.getElementById('trainingStats').innerHTML = 'No training data loaded';
+            document.getElementById('testingStats').innerHTML = 'No testing data loaded';
+            document.getElementById('globalStats').innerHTML = 'Load training and testing CSV files to begin';
+            
+            updateStatusDisplays();
         }
 
         // Clean up on page unload
-        window.addEventListener('beforeunload', () => {
-            if (imagesTensor) imagesTensor.dispose();
-            if (labelsTensor) labelsTensor.dispose();
-        });
+        window.addEventListener('beforeunload', clearAllData);
+
+        // Initialize
+        updateStatusDisplays();
     </script>
 </body>
 </html>
