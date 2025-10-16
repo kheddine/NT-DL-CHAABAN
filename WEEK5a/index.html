@@ -6,25 +6,26 @@
   <script src="https://cdn.jsdelivr.net/npm/@tensorflow/tfjs@4.22.0/dist/tf.min.js"></script>
   <script src="https://cdn.jsdelivr.net/npm/chart.js"></script>
   <style>
-    body { font-family: Arial; padding: 20px; background: #fafafa; }
-    .container { max-width: 1200px; margin: auto; }
+    body { font-family: Arial; background: #fafafa; margin: 20px; }
+    .container { max-width: 1100px; margin: auto; }
+    button { margin: 5px; padding: 10px; }
+    progress { width: 100%; margin: 10px 0; }
     .stock-chart { margin: 20px 0; }
   </style>
 </head>
 <body>
   <div class="container">
     <h1>📈 Multi-Stock RNN Prediction Demo</h1>
-    <p>Upload your CSV (Date, Symbol, Open, High, Low, Close for 10 stocks):</p>
-    <input type="file" id="csvFile" accept=".csv" />
+    <input type="file" id="csvFile" accept=".csv">
     <button id="trainBtn" disabled>Train Model</button>
     <button id="predictBtn" disabled>Run Prediction</button>
-    <p id="status">Waiting for file...</p>
-    <progress id="trainingProgress" value="0" max="100" style="width:100%"></progress>
+    <p id="status">Waiting for CSV...</p>
+    <progress id="trainingProgress" value="0" max="100"></progress>
 
     <h3>Stock Accuracy Ranking</h3>
     <canvas id="accuracyChart"></canvas>
 
-    <h3>Prediction Timelines</h3>
+    <h3>Prediction Timelines (Top 3)</h3>
     <div id="timelineContainer"></div>
   </div>
 
