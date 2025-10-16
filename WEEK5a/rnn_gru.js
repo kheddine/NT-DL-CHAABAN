@@ -76,6 +76,82 @@ export function createRNNGRUModel(numStocks) {
  *  onEpochEnd?: (epoch: number, logs: tf.Logs) => void,
  * }} options
  */
+function createEarlyStoppingWithRestore(model, options) {
+  const { patience = 6, monitor = 'loss', mode = 'min' } = options ?? {};
+  const compare =
+    mode === 'max'
+      ? (a, b) => a > b
+      : (a, b) => a < b;
+
+  let bestMetricValue = mode === 'max' ? -Infinity : Infinity;
+  let bestWeights = null;
+  let bestEpoch = -1;
+  let wait = 0;
+  let warnedMissingMetric = false;
+
+  const cloneWeights = (weights) => weights.map((tensor) => tensor.clone());
+  const disposeWeights = (weights) => {
+    if (!weights) {
+      return;
+    }
+    for (const tensor of weights) {
+      tensor.dispose();
+    }
+  };
+
+  return {
+    onTrainBegin() {
+      bestMetricValue = mode === 'max' ? -Infinity : Infinity;
+      wait = 0;
+      warnedMissingMetric = false;
+      bestEpoch = -1;
+      disposeWeights(bestWeights);
+      bestWeights = null;
+    },
+    onEpochEnd(epoch, logs) {
+      const metricValue = logs?.[monitor];
+
+      if (metricValue == null) {
+        if (!warnedMissingMetric) {
+          console.warn(
+            `Early stopping metric "${monitor}" was not found in training logs.`
+          );
+          warnedMissingMetric = true;
+        }
+        return;
+      }
+
+      if (compare(metricValue, bestMetricValue)) {
+        disposeWeights(bestWeights);
+        bestWeights = cloneWeights(model.getWeights());
+        bestMetricValue = metricValue;
+        bestEpoch = epoch;
+        wait = 0;
+        return;
+      }
+
+      wait += 1;
+      if (wait >= patience) {
+        console.info(
+          `Stopping early at epoch ${epoch + 1}. Best metric (${monitor}) was ${bestMetricValue} at epoch ${bestEpoch + 1}.`
+        );
+        model.stopTraining = true;
+      }
+    },
+    onTrainEnd() {
+      if (!bestWeights) {
+        return;
+      }
+
+      const weightCopies = cloneWeights(bestWeights);
+      model.setWeights(weightCopies);
+      disposeWeights(weightCopies);
+      disposeWeights(bestWeights);
+      bestWeights = null;
+    },
+  };
+}
+
 export async function trainModel(model, dataset, options = {}) {
   const { X_train, y_train, X_val, y_val } = dataset;
   if (!X_train || !y_train) {
@@ -91,13 +167,13 @@ export async function trainModel(model, dataset, options = {}) {
   const batchSize = options.batchSize ?? DEFAULT_BATCH_SIZE;
 
   const callbacks = [];
-  const earlyStopping = tf.callbacks.earlyStopping({
-    patience: 6,
-    restoreBestWeights: true,
-    monitor: X_val && y_val ? 'val_binaryAccuracy' : 'binaryAccuracy',
-    mode: 'max',
-  });
-  callbacks.push(earlyStopping);
+  callbacks.push(
+    createEarlyStoppingWithRestore(model, {
+      patience: 6,
+      monitor: X_val && y_val ? 'val_binaryAccuracy' : 'binaryAccuracy',
+      mode: 'max',
+    })
+  );
 
   if (options.onEpochBegin || options.onEpochEnd) {
     callbacks.push({
