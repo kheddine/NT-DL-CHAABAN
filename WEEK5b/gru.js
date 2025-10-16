@@ -6,6 +6,7 @@ export class GRUModel {
         this.inputShape = inputShape;
         this.outputSize = outputSize;
         this.history = null;
+        this.isTraining = false;
     }
 
     buildModel() {
@@ -16,28 +17,28 @@ export class GRUModel {
         
         // 1D Convolution for feature extraction
         model.add(tf.layers.conv1d({
-            filters: 32,
-            kernelSize: 3,
+            filters: 16,  // Reduced for speed
+            kernelSize: 2,
             activation: 'relu',
             padding: 'same'
         }));
         
         // First GRU layer
         model.add(tf.layers.gru({
-            units: 64,
+            units: 32,  // Reduced for speed
             returnSequences: true,
             activation: 'tanh'
         }));
         
         // Second GRU layer
         model.add(tf.layers.gru({
-            units: 32,
+            units: 16,  // Reduced for speed
             activation: 'tanh'
         }));
         
         // Dense layers
-        model.add(tf.layers.dense({ units: 50, activation: 'relu' }));
-        model.add(tf.layers.dropout({ rate: 0.3 }));
+        model.add(tf.layers.dense({ units: 32, activation: 'relu' }));
+        model.add(tf.layers.dropout({ rate: 0.2 }));
         model.add(tf.layers.dense({ units: this.outputSize, activation: 'sigmoid' }));
 
         model.compile({
@@ -47,46 +48,77 @@ export class GRUModel {
         });
 
         this.model = model;
+        console.log('Model built successfully');
         return model;
     }
 
-    async train(X_train, y_train, X_test, y_test, epochs = 50, batchSize = 32) {
+    async train(X_train, y_train, X_test, y_test, epochs = 30, batchSize = 16) {  // Reduced epochs and batch size
         if (!this.model) {
             throw new Error('Model not built. Call buildModel() first.');
         }
 
-        this.history = await this.model.fit(X_train, y_train, {
-            epochs: epochs,
-            batchSize: batchSize,
-            validationData: [X_test, y_test],
-            callbacks: {
-                onEpochEnd: (epoch, logs) => {
-                    console.log(`Epoch ${epoch + 1}: loss = ${logs.loss.toFixed(4)}, accuracy = ${logs.acc.toFixed(4)}, val_loss = ${logs.val_loss.toFixed(4)}, val_accuracy = ${logs.val_acc.toFixed(4)}`);
-                    
-                    // Dispatch custom event for UI updates
-                    const event = new CustomEvent('trainingProgress', {
-                        detail: {
-                            epoch: epoch + 1,
-                            epochs: epochs,
-                            loss: logs.loss,
-                            accuracy: logs.acc,
-                            valLoss: logs.val_loss,
-                            valAccuracy: logs.val_acc
-                        }
-                    });
-                    window.dispatchEvent(event);
-                }
-            }
-        });
+        if (this.isTraining) {
+            throw new Error('Model is already training');
+        }
 
-        return this.history;
+        this.isTraining = true;
+
+        try {
+            this.history = await this.model.fit(X_train, y_train, {
+                epochs: epochs,
+                batchSize: batchSize,
+                validationData: [X_test, y_test],
+                verbose: 0,  // Reduce console output
+                callbacks: {
+                    onEpochEnd: async (epoch, logs) => {
+                        // Clean up memory every few epochs
+                        if (epoch % 5 === 0) {
+                            await tf.nextFrame();
+                        }
+                        
+                        console.log(`Epoch ${epoch + 1}/${epochs}: loss = ${logs.loss.toFixed(4)}, acc = ${logs.acc.toFixed(4)}, val_loss = ${logs.val_loss.toFixed(4)}, val_acc = ${logs.val_acc.toFixed(4)}`);
+                        
+                        // Dispatch custom event for UI updates
+                        const event = new CustomEvent('trainingProgress', {
+                            detail: {
+                                epoch: epoch + 1,
+                                epochs: epochs,
+                                loss: logs.loss,
+                                accuracy: logs.acc,
+                                valLoss: logs.val_loss,
+                                valAccuracy: logs.val_acc
+                            }
+                        });
+                        window.dispatchEvent(event);
+                    },
+                    onTrainEnd: () => {
+                        this.isTraining = false;
+                    }
+                }
+            });
+
+            return this.history;
+        } catch (error) {
+            this.isTraining = false;
+            throw error;
+        }
     }
 
     async predict(X) {
         if (!this.model) {
             throw new Error('Model not built. Call buildModel() first.');
         }
-        return this.model.predict(X);
+        
+        // Ensure input is a tensor
+        const inputTensor = X instanceof tf.Tensor ? X : tf.tensor(X);
+        const prediction = this.model.predict(inputTensor);
+        
+        // Clean up if we created a new tensor
+        if (inputTensor !== X) {
+            inputTensor.dispose();
+        }
+        
+        return prediction;
     }
 
     evaluate(X_test, y_test) {
@@ -97,6 +129,7 @@ export class GRUModel {
     }
 
     computePerStockAccuracy(predictions, y_true, symbols) {
+        // Convert to arrays for processing
         const predData = predictions.arraySync();
         const trueData = y_true.arraySync();
         const stocks = symbols;
@@ -121,7 +154,7 @@ export class GRUModel {
                 }
             }
             
-            accuracies[stock] = correct / total;
+            accuracies[stock] = total > 0 ? correct / total : 0;
         });
         
         return accuracies;
@@ -132,15 +165,23 @@ export class GRUModel {
             throw new Error('No model to save');
         }
         await this.model.save(`indexeddb://${name}`);
+        console.log('Model saved successfully');
     }
 
     async loadModel(name = 'gru-model') {
-        this.model = await tf.loadLayersModel(`indexeddb://${name}`);
+        try {
+            this.model = await tf.loadLayersModel(`indexeddb://${name}`);
+            console.log('Model loaded successfully');
+        } catch (error) {
+            console.error('Error loading model:', error);
+            throw error;
+        }
     }
 
     dispose() {
         if (this.model) {
             this.model.dispose();
         }
+        this.isTraining = false;
     }
 }
