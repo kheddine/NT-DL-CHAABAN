@@ -1,152 +1,192 @@
-// data-loader.js
-// Build [samples, 12, 20] inputs (Open+Close for 10 stocks) and 3-day-ahead 30-bit outputs.
-// Train-only min-max normalization. Robust splits with fallback.
+import * as tf from 'https://cdn.jsdelivr.net/npm/@tensorflow/tfjs@4.22.0/dist/tf.min.js';
 
 export class DataLoader {
-  constructor() {
-    this.symbols = [];
-    this.dates = [];
-    this.data = {};
-  }
-
-  async loadCSV(file) {
-    const text = await file.text();
-    const lines = text.split(/\r?\n/).filter(l => l.trim().length);
-    if (lines.length < 2) throw new Error("CSV appears empty.");
-
-    const headers = lines[0].split(",").map(h => h.trim());
-    const required = ["Date", "Symbol", "Open", "Close"];
-    for (const h of required) {
-      if (!headers.includes(h)) {
-        throw new Error(`Missing column "${h}". Found: ${headers.join(", ")}`);
-      }
-    }
-    const idx = Object.fromEntries(headers.map((h, i) => [h, i]));
-
-    const data = {};
-    const syms = new Set();
-    const dts = new Set();
-
-    for (let i = 1; i < lines.length; i++) {
-      const parts = lines[i].split(",");
-      if (parts.length < headers.length) continue;
-      const date = parts[idx.Date]?.trim();
-      const symbol = parts[idx.Symbol]?.trim();
-      const open = parseFloat(parts[idx.Open]);
-      const close = parseFloat(parts[idx.Close]);
-      if (!date || !symbol) continue;
-      if ([open, close].some(v => Number.isNaN(v))) continue;
-
-      if (!data[symbol]) data[symbol] = {};
-      data[symbol][date] = { Open: open, Close: close };
-      syms.add(symbol);
-      dts.add(date);
+    constructor() {
+        this.data = null;
+        this.symbols = [];
+        this.dates = [];
+        this.normalizedData = null;
+        this.X_train = null;
+        this.y_train = null;
+        this.X_test = null;
+        this.y_test = null;
     }
 
-    this.symbols = Array.from(syms).sort().slice(0, 10);
-    this.dates = Array.from(dts).sort();
-    this.data = data;
-
-    if (this.symbols.length === 0) throw new Error("No valid symbols parsed from CSV.");
-    if (this.dates.length < 20) throw new Error("Not enough dates for 12-day windows.");
-  }
-
-  createSequences(seqLen = 12, horizon = 3) {
-    const Xraw = [];
-    const Y = [];
-    const syms = this.symbols;
-
-    for (let i = seqLen; i < this.dates.length - horizon; i++) {
-      let valid = true;
-      const windowSteps = [];
-
-      // 12-day input window
-      for (let j = i - seqLen; j < i; j++) {
-        const d = this.dates[j];
-        const step = [];
-        for (const s of syms) {
-          const rec = this.data[s][d];
-          if (!rec) { valid = false; break; }
-          const vals = [rec.Open, rec.Close];
-          if (vals.some(v => Number.isNaN(v))) { valid = false; break; }
-          step.push(...vals);
-        }
-        if (!valid) break;
-        windowSteps.push(step);
-      }
-      if (!valid) continue;
-
-      // 3-day-ahead binary labels per stock
-      const target = [];
-      for (let h = 1; h <= horizon; h++) {
-        const fd = this.dates[i + h];
-        for (const s of syms) {
-          const now = this.data[s][this.dates[i]];
-          const fut = this.data[s][fd];
-          if (!now || !fut) { valid = false; break; }
-          target.push(fut.Close > now.Close ? 1 : 0);
-        }
-      }
-      if (!valid) continue;
-
-      Xraw.push(windowSteps);
-      Y.push(target);
+    async loadCSV(file) {
+        return new Promise((resolve, reject) => {
+            const reader = new FileReader();
+            reader.onload = (e) => {
+                try {
+                    const csv = e.target.result;
+                    this.parseCSV(csv);
+                    resolve(this.data);
+                } catch (error) {
+                    reject(error);
+                }
+            };
+            reader.onerror = reject;
+            reader.readAsText(file);
+        });
     }
 
-    if (!Xraw.length) throw new Error("No valid sequences (symbols may not align by date).");
-
-    // 70/15/15 with fallback to 80/20 if needed
-    const n = Xraw.length;
-    let nTrain = Math.floor(n * 0.70);
-    let nVal = Math.floor(n * 0.85);
-    if (nVal === nTrain) nVal = Math.min(n, nTrain + Math.max(1, Math.floor(n * 0.1)));
-    if (nVal >= n) { nTrain = Math.max(1, Math.floor(n * 0.8)); nVal = nTrain; }
-
-    const Xtr = Xraw.slice(0, nTrain);
-    const Xv  = Xraw.slice(nTrain, nVal);
-    const Xte = Xraw.slice(nVal);
-
-    // Train-only min/max per stock (on Open/Close)
-    const minMax = {};
-    syms.forEach((s, si) => {
-      let mn = Infinity, mx = -Infinity;
-      for (const w of Xtr) {
-        for (const st of w) {
-          const base = si * 2;
-          const a = st[base], b = st[base + 1];
-          if (!Number.isNaN(a)) { if (a < mn) mn = a; if (a > mx) mx = a; }
-          if (!Number.isNaN(b)) { if (b < mn) mn = b; if (b > mx) mx = b; }
+    parseCSV(csvText) {
+        const lines = csvText.trim().split('\n');
+        const headers = lines[0].split(',').map(h => h.trim());
+        
+        // Validate required columns
+        const requiredCols = ['Date', 'Symbol', 'Open', 'Close'];
+        if (!requiredCols.every(col => headers.includes(col))) {
+            throw new Error('CSV missing required columns: Date, Symbol, Open, Close');
         }
-      }
-      if (!isFinite(mn) || !isFinite(mx) || mn === mx) { mn = 0; mx = 1; }
-      minMax[s] = { min: mn, max: mx };
-    });
 
-    const scale = arr => arr.map(w => w.map(st => {
-      const out = [];
-      syms.forEach((s, si) => {
-        const { min, max } = minMax[s];
-        const denom = Math.max(1e-9, max - min);
-        const base = si * 2;
-        out.push((st[base] - min) / denom);
-        out.push((st[base + 1] - min) / denom);
-      });
-      return out;
-    }));
+        const data = [];
+        for (let i = 1; i < lines.length; i++) {
+            const values = lines[i].split(',').map(v => v.trim());
+            const row = {};
+            headers.forEach((header, index) => {
+                row[header] = values[index];
+            });
+            data.push(row);
+        }
 
-    const X_train = tf.tensor3d(scale(Xtr));      // [N, 12, 20]
-    const y_train = tf.tensor2d(Y.slice(0, nTrain)); // [N, 30]
-    const X_val   = tf.tensor3d(scale(Xv));
-    const y_val   = tf.tensor2d(Y.slice(nTrain, nVal));
-    const X_test  = tf.tensor3d(scale(Xte));
-    const y_test  = tf.tensor2d(Y.slice(nVal));
+        this.data = data;
+        this.prepareData();
+    }
 
-    console.log("Tensors:", {
-      X_train: X_train.shape, y_train: y_train.shape,
-      X_val: X_val.shape, y_val: y_val.shape,
-      X_test: X_test.shape, y_test: y_test.shape
-    });
+    prepareData() {
+        // Extract unique symbols and dates
+        this.symbols = [...new Set(this.data.map(row => row.Symbol))].sort();
+        this.dates = [...new Set(this.data.map(row => row.Date))].sort();
+        
+        if (this.symbols.length !== 10) {
+            console.warn(`Expected 10 stocks, found ${this.symbols.length}`);
+        }
 
-    return { X_train, y_train, X_val, y_val, X_test, y_test, symbols: syms };
-  }
+        // Pivot data: date × symbol → features
+        this.pivotedData = {};
+        this.dates.forEach(date => {
+            this.pivotedData[date] = {};
+            this.symbols.forEach(symbol => {
+                const row = this.data.find(r => r.Date === date && r.Symbol === symbol);
+                if (row) {
+                    this.pivotedData[date][symbol] = {
+                        Open: parseFloat(row.Open),
+                        Close: parseFloat(row.Close)
+                    };
+                }
+            });
+        });
+
+        this.normalizeData();
+    }
+
+    normalizeData() {
+        this.normalizedData = {};
+        this.minMax = {};
+
+        // Calculate min-max per stock
+        this.symbols.forEach(symbol => {
+            const opens = this.dates.map(date => this.pivotedData[date]?.[symbol]?.Open).filter(v => v != null);
+            const closes = this.dates.map(date => this.pivotedData[date]?.[symbol]?.Close).filter(v => v != null);
+            
+            this.minMax[symbol] = {
+                Open: { min: Math.min(...opens), max: Math.max(...opens) },
+                Close: { min: Math.min(...closes), max: Math.max(...closes) }
+            };
+        });
+
+        // Normalize data
+        this.dates.forEach(date => {
+            this.normalizedData[date] = {};
+            this.symbols.forEach(symbol => {
+                const data = this.pivotedData[date][symbol];
+                if (data) {
+                    this.normalizedData[date][symbol] = {
+                        Open: (data.Open - this.minMax[symbol].Open.min) / 
+                              (this.minMax[symbol].Open.max - this.minMax[symbol].Open.min),
+                        Close: (data.Close - this.minMax[symbol].Close.min) / 
+                               (this.minMax[symbol].Close.max - this.minMax[symbol].Close.min)
+                    };
+                }
+            });
+        });
+    }
+
+    createSamples(sequenceLength = 12, predictionHorizon = 3) {
+        const samples = [];
+        const targets = [];
+        const validDates = this.dates.slice(sequenceLength, this.dates.length - predictionHorizon);
+
+        validDates.forEach((date, dateIndex) => {
+            const dateIdx = this.dates.indexOf(date);
+            const inputSequence = [];
+            
+            // Get 12-day sequence
+            for (let i = dateIdx - sequenceLength; i < dateIdx; i++) {
+                const seqDate = this.dates[i];
+                const features = [];
+                
+                this.symbols.forEach(symbol => {
+                    const stockData = this.normalizedData[seqDate][symbol];
+                    features.push(stockData.Open, stockData.Close);
+                });
+                
+                inputSequence.push(features);
+            }
+
+            // Get target labels for D+1, D+2, D+3
+            const targetLabels = [];
+            const currentClosePrices = {};
+            
+            // Get current close prices (date D)
+            this.symbols.forEach(symbol => {
+                currentClosePrices[symbol] = this.pivotedData[date][symbol].Close;
+            });
+
+            // Calculate binary labels for each stock for next 3 days
+            for (let offset = 1; offset <= predictionHorizon; offset++) {
+                const futureDate = this.dates[dateIdx + offset];
+                this.symbols.forEach(symbol => {
+                    const futureClose = this.pivotedData[futureDate][symbol].Close;
+                    const currentClose = currentClosePrices[symbol];
+                    targetLabels.push(futureClose > currentClose ? 1 : 0);
+                });
+            }
+
+            samples.push(inputSequence);
+            targets.push(targetLabels);
+        });
+
+        // Convert to tensors
+        const X = tf.tensor3d(samples);
+        const y = tf.tensor2d(targets);
+
+        // Split chronologically (80% train, 20% test)
+        const splitIdx = Math.floor(samples.length * 0.8);
+        
+        this.X_train = X.slice(0, splitIdx);
+        this.X_test = X.slice(splitIdx);
+        this.y_train = y.slice(0, splitIdx);
+        this.y_test = y.slice(splitIdx);
+
+        // Clean up intermediate tensors
+        tf.dispose([X, y]);
+    }
+
+    getData() {
+        return {
+            X_train: this.X_train,
+            y_train: this.y_train,
+            X_test: this.X_test,
+            y_test: this.y_test,
+            symbols: this.symbols
+        };
+    }
+
+    dispose() {
+        if (this.X_train) this.X_train.dispose();
+        if (this.y_train) this.y_train.dispose();
+        if (this.X_test) this.X_test.dispose();
+        if (this.y_test) this.y_test.dispose();
+    }
 }
