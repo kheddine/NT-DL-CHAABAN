@@ -3,7 +3,7 @@
 <head>
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
-    <title>COVID-19 Chest X-ray Classifier - Educational Tool</title>
+    <title>Pneumonia Chest X-ray Classifier - Educational Tool</title>
     <script src="https://cdn.jsdelivr.net/npm/@tensorflow/tfjs@4.10.0"></script>
     <script src="https://cdn.jsdelivr.net/npm/@tensorflow/tfjs-vis@1.5.1"></script>
     <style>
@@ -386,10 +386,36 @@
             border: 2px solid var(--light);
         }
         
+        .training-progress {
+            margin: 20px 0;
+        }
+        
+        .progress-bar {
+            height: 20px;
+            background: #ddd;
+            border-radius: 10px;
+            overflow: hidden;
+            margin: 10px 0;
+        }
+        
+        .progress-fill {
+            height: 100%;
+            background: linear-gradient(90deg, var(--secondary), var(--success));
+            transition: width 0.3s ease;
+        }
+        
         footer {
             text-align: center;
             padding: 20px;
             color: white;
+            font-size: 0.9rem;
+        }
+
+        .backend-info {
+            background: var(--light);
+            padding: 10px;
+            border-radius: 5px;
+            margin: 10px 0;
             font-size: 0.9rem;
         }
     </style>
@@ -397,7 +423,7 @@
 <body>
     <div class="container">
         <header class="header">
-            <h1 class="app-title">Chest X-ray Pneumonia Classifier</h1>
+            <h1 class="app-title">Pneumonia Chest X-ray Classifier</h1>
             <p class="app-subtitle">Educational Tool for Medical Imaging AI Research</p>
             
             <div class="medical-disclaimer" role="alert" aria-live="polite">
@@ -419,19 +445,44 @@
                 <!-- Training Mode Upload -->
                 <div id="trainingUpload" style="display: none;">
                     <div class="folder-upload-section">
-                        <h3>Training Data Folders</h3>
-                        <p>Select folders containing labeled chest X-ray images</p>
-                        
+                        <h3>Step 1: Upload Normal Chest X-rays</h3>
+                        <p>Select images without pneumonia</p>
                         <div class="folder-upload-item">
-                            <label for="normalFolder">Normal Chest X-rays Folder</label>
-                            <input type="file" id="normalFolder" webkitdirectory directory multiple>
+                            <label for="normalFiles">Normal Chest X-rays</label>
+                            <input type="file" id="normalFiles" accept=".jpg,.jpeg,.png" multiple>
                             <div id="normalStats" class="folder-stats" style="display: none;"></div>
                         </div>
-                        
+                    </div>
+
+                    <div class="folder-upload-section">
+                        <h3>Step 2: Upload Pneumonia Chest X-rays</h3>
+                        <p>Select images with pneumonia</p>
                         <div class="folder-upload-item">
-                            <label for="pneumoniaFolder">Pneumonia Chest X-rays Folder</label>
-                            <input type="file" id="pneumoniaFolder" webkitdirectory directory multiple>
+                            <label for="pneumoniaFiles">Pneumonia Chest X-rays</label>
+                            <input type="file" id="pneumoniaFiles" accept=".jpg,.jpeg,.png" multiple>
                             <div id="pneumoniaStats" class="folder-stats" style="display: none;"></div>
+                        </div>
+                    </div>
+
+                    <div id="trainingDataSummary" style="display: none;">
+                        <h3>Training Data Summary</h3>
+                        <div class="folder-stats">
+                            <div class="stat-card">
+                                <div class="stat-value normal-stat" id="normalCount">0</div>
+                                <div>Normal Images</div>
+                            </div>
+                            <div class="stat-card">
+                                <div class="stat-value pneumonia-stat" id="pneumoniaCount">0</div>
+                                <div>Pneumonia Images</div>
+                            </div>
+                            <div class="stat-card">
+                                <div class="stat-value" id="totalCount">0</div>
+                                <div>Total Images</div>
+                            </div>
+                            <div class="stat-card">
+                                <div class="stat-value" id="balanceRatio">0%</div>
+                                <div>Balance Ratio</div>
+                            </div>
                         </div>
                     </div>
                 </div>
@@ -440,15 +491,14 @@
                 <div id="inferenceUpload">
                     <div class="upload-area" id="uploadArea" role="button" tabindex="0" aria-label="Drag and drop area for chest X-ray images">
                         <div class="upload-icon" style="font-size: 3rem; margin-bottom: 10px;">📁</div>
-                        <h3>Upload Chest X-ray Images or Folder</h3>
-                        <p>Drag & drop JPG/PNG files/folders or click to browse</p>
+                        <h3>Upload Chest X-ray Images</h3>
+                        <p>Drag & drop JPG/PNG files or click to browse</p>
                         <p><small>Maximum 10MB per file, up to 50 images</small></p>
                         <input type="file" id="fileInput" accept=".jpg,.jpeg,.png" multiple style="display: none;">
                     </div>
                     
-                    <div class="folder-upload-item">
-                        <label for="testFolder">Or select test folder:</label>
-                        <input type="file" id="testFolder" webkitdirectory directory multiple>
+                    <div class="backend-info" id="backendInfo">
+                        Initializing TensorFlow.js...
                     </div>
                 </div>
                 
@@ -461,16 +511,24 @@
                     </div>
                     <div class="control-group">
                         <label for="epochs">Epochs</label>
-                        <input type="number" id="epochs" value="10" min="1" max="100">
+                        <input type="number" id="epochs" value="10" min="1" max="50">
                     </div>
                     <div class="control-group">
                         <label for="batchSize">Batch Size</label>
-                        <input type="number" id="batchSize" value="8" min="1" max="32">
+                        <input type="number" id="batchSize" value="8" min="1" max="16">
                     </div>
                     <div class="control-group">
-                        <label for="testSplit">Test Split (%)</label>
+                        <label for="testSplit">Validation Split (%)</label>
                         <input type="number" id="testSplit" value="20" min="10" max="40">
                     </div>
+                </div>
+
+                <div class="training-progress" id="trainingProgress" style="display: none;">
+                    <h4>Training Progress</h4>
+                    <div class="progress-bar">
+                        <div class="progress-fill" id="progressFill" style="width: 0%"></div>
+                    </div>
+                    <div id="progressText">Starting training...</div>
                 </div>
                 
                 <div class="action-buttons">
@@ -486,7 +544,7 @@
                 
                 <div class="loading" id="loadingIndicator">
                     <div class="spinner"></div>
-                    <p>Processing... Please wait</p>
+                    <p id="loadingText">Processing... Please wait</p>
                 </div>
                 
                 <div class="results-area" id="resultsArea">
@@ -505,7 +563,7 @@
         </div>
 
         <!-- Visualization Area -->
-        <div class="panel">
+        <div class="panel" id="visualizationPanel" style="display: none;">
             <h2 class="panel-title">Model Performance & Analytics</h2>
             <div id="modelVisualization"></div>
         </div>
