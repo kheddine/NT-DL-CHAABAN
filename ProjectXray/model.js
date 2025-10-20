@@ -1,10 +1,10 @@
 /**
- * COVID-19 Chest X-ray Classification Model
+ * Pneumonia Chest X-ray Classification Model
  * Convolutional Neural Network for medical image analysis
  * Educational purpose only - NOT for clinical use
  */
 
-class COVID19Classifier {
+class PneumoniaClassifier {
     constructor() {
         this.model = null;
         this.isTraining = false;
@@ -14,10 +14,11 @@ class COVID19Classifier {
             valLoss: [],
             valAccuracy: []
         };
+        this.classNames = ['Normal', 'Pneumonia'];
     }
 
     /**
-     * Create CNN model for chest X-ray classification
+     * Create CNN model for chest X-ray pneumonia classification
      * Architecture optimized for medical image analysis
      */
     createModel(useTransferLearning = false) {
@@ -107,7 +108,7 @@ class COVID19Classifier {
             name: 'dropout2'
         }));
         
-        // Output layer: 2 classes (COVID-19, Normal)
+        // Output layer: 2 classes (Normal, Pneumonia)
         model.add(tf.layers.dense({
             units: 2,
             activation: 'softmax',
@@ -121,7 +122,7 @@ class COVID19Classifier {
             metrics: ['accuracy']
         });
         
-        console.log('CNN Model created successfully');
+        console.log('CNN Model created successfully for pneumonia classification');
         return model;
     }
 
@@ -143,7 +144,7 @@ class COVID19Classifier {
         // Freeze base model layers for transfer learning
         baseModel.trainable = false;
         
-        // Add custom classification head for COVID-19 detection
+        // Add custom classification head for pneumonia detection
         const model = tf.sequential();
         model.add(baseModel);
         model.add(tf.layers.globalAveragePooling2d());
@@ -164,7 +165,7 @@ class COVID19Classifier {
             metrics: ['accuracy']
         });
         
-        console.log('Transfer learning model created successfully');
+        console.log('Transfer learning model created successfully for pneumonia classification');
         return model;
     }
 
@@ -217,7 +218,7 @@ class COVID19Classifier {
     }
 
     /**
-     * Predict COVID-19 probability for single image
+     * Predict pneumonia probability for single image
      */
     async predict(imageTensor) {
         if (!this.model) {
@@ -237,9 +238,9 @@ class COVID19Classifier {
             prediction.dispose();
             
             return {
-                covid: probabilities[1],  // COVID-19 probability
-                normal: probabilities[0], // Normal probability
-                predictedClass: probabilities[1] > probabilities[0] ? 'COVID-19' : 'Normal',
+                pneumonia: probabilities[1],  // Pneumonia probability
+                normal: probabilities[0],     // Normal probability
+                predictedClass: probabilities[1] > probabilities[0] ? 'Pneumonia' : 'Normal',
                 confidence: Math.max(probabilities[0], probabilities[1])
             };
         } catch (error) {
@@ -271,7 +272,7 @@ class COVID19Classifier {
      * Generate Grad-CAM heatmap for model interpretability
      * Shows which regions the model focuses on for prediction
      */
-    async generateHeatmap(imageTensor, className = 'COVID-19') {
+    async generateHeatmap(imageTensor, className = 'Pneumonia') {
         if (!this.model) return null;
 
         try {
@@ -290,8 +291,8 @@ class COVID19Classifier {
                 return gradModel.predict(batchedImage);
             });
 
-            // Get the class index (1 for COVID-19, 0 for Normal)
-            const classIdx = className === 'COVID-19' ? 1 : 0;
+            // Get the class index (1 for Pneumonia, 0 for Normal)
+            const classIdx = className === 'Pneumonia' ? 1 : 0;
             const output = predictions.gather([classIdx], 1);
             
             // Compute gradients
@@ -337,10 +338,10 @@ class COVID19Classifier {
             const trueLabel = trueLabels[idx];
             const predLabel = pred.predictedClass;
             
-            if (trueLabel === 'COVID-19' && predLabel === 'COVID-19') tp++;
+            if (trueLabel === 'Pneumonia' && predLabel === 'Pneumonia') tp++;
             else if (trueLabel === 'Normal' && predLabel === 'Normal') tn++;
-            else if (trueLabel === 'Normal' && predLabel === 'COVID-19') fp++;
-            else if (trueLabel === 'COVID-19' && predLabel === 'Normal') fn++;
+            else if (trueLabel === 'Normal' && predLabel === 'Pneumonia') fp++;
+            else if (trueLabel === 'Pneumonia' && predLabel === 'Normal') fn++;
         });
         
         const accuracy = (tp + tn) / (tp + tn + fp + fn);
@@ -380,23 +381,26 @@ class COVID19Classifier {
         };
         
         // Update tfjs-vis charts
-        tfvis.show.history(document.getElementById('modelVisualization'), lossData, ['loss'], {
-            xLabel: 'Epoch',
-            yLabel: 'Loss',
-            height: 300
-        });
-        
-        tfvis.show.history(document.getElementById('modelVisualization'), accuracyData, ['acc'], {
-            xLabel: 'Epoch',
-            yLabel: 'Accuracy',
-            height: 300
-        });
+        const vizContainer = document.getElementById('modelVisualization');
+        if (vizContainer) {
+            tfvis.show.history(vizContainer, lossData, ['loss'], {
+                xLabel: 'Epoch',
+                yLabel: 'Loss',
+                height: 300
+            });
+            
+            tfvis.show.history(vizContainer, accuracyData, ['acc'], {
+                xLabel: 'Epoch',
+                yLabel: 'Accuracy',
+                height: 300
+            });
+        }
     }
 
     /**
      * Save model to browser storage
      */
-    async saveModel(modelName = 'covid19-classifier') {
+    async saveModel(modelName = 'pneumonia-classifier') {
         if (!this.model) {
             throw new Error('No model to save');
         }
@@ -414,7 +418,7 @@ class COVID19Classifier {
     /**
      * Load model from browser storage
      */
-    async loadModel(modelName = 'covid19-classifier') {
+    async loadModel(modelName = 'pneumonia-classifier') {
         try {
             this.model = await tf.loadLayersModel(`indexeddb://${modelName}`);
             console.log('Model loaded successfully');
@@ -438,5 +442,5 @@ class COVID19Classifier {
 
 // Export for use in other files
 if (typeof module !== 'undefined' && module.exports) {
-    module.exports = COVID19Classifier;
+    module.exports = PneumoniaClassifier;
 }
