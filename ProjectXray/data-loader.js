@@ -1,6 +1,6 @@
 /**
  * Medical Image Data Loader and Preprocessor
- * Handles chest X-ray image loading from folders, preprocessing, and augmentation
+ * Handles chest X-ray image loading, preprocessing, and augmentation
  * All processing happens client-side for privacy
  */
 
@@ -13,6 +13,7 @@ class MedicalImageLoader {
             normal: [],
             pneumonia: []
         };
+        this.inputSize = [150, 150]; // Match model input size
         this.augmentationOptions = {
             rotation: true,
             flipping: true,
@@ -21,15 +22,16 @@ class MedicalImageLoader {
     }
 
     /**
-     * Load training data from separate normal and pneumonia folders
+     * Load training data from separate normal and pneumonia files
      */
     async loadTrainingData(normalFiles, pneumoniaFiles) {
         this.clearPreviousData();
         
         console.log(`Loading training data: ${normalFiles.length} normal, ${pneumoniaFiles.length} pneumonia images`);
         
-        // Load normal images
-        for (const file of normalFiles) {
+        // Validate and load normal images
+        const validNormalFiles = this.validateFiles(normalFiles);
+        for (const file of validNormalFiles) {
             try {
                 const imageData = await this.loadSingleImage(file);
                 this.trainingData.normal.push(imageData);
@@ -38,8 +40,9 @@ class MedicalImageLoader {
             }
         }
         
-        // Load pneumonia images
-        for (const file of pneumoniaFiles) {
+        // Validate and load pneumonia images
+        const validPneumoniaFiles = this.validateFiles(pneumoniaFiles);
+        for (const file of validPneumoniaFiles) {
             try {
                 const imageData = await this.loadSingleImage(file);
                 this.trainingData.pneumonia.push(imageData);
@@ -59,7 +62,7 @@ class MedicalImageLoader {
     }
 
     /**
-     * Load test data from folder or individual files
+     * Load test data from files
      */
     async loadTestData(files) {
         this.clearPreviousData();
@@ -70,12 +73,17 @@ class MedicalImageLoader {
         }
 
         // Load images sequentially to avoid memory issues
-        for (const file of validFiles) {
+        for (let i = 0; i < validFiles.length; i++) {
             try {
-                const imageData = await this.loadSingleImage(file);
+                const imageData = await this.loadSingleImage(validFiles[i]);
                 this.loadedImages.push(imageData);
+                
+                // Periodic cleanup
+                if (i % 10 === 0) {
+                    await new Promise(resolve => setTimeout(resolve, 0));
+                }
             } catch (error) {
-                console.error(`Error loading image ${file.name}:`, error);
+                console.error(`Error loading image ${validFiles[i].name}:`, error);
             }
         }
 
@@ -144,17 +152,18 @@ class MedicalImageLoader {
     }
 
     /**
-     * Prepare training dataset from loaded folders
+     * Prepare training dataset from loaded files
      */
     prepareTrainingDataset() {
         if (this.trainingData.normal.length === 0 && this.trainingData.pneumonia.length === 0) {
-            throw new Error('No training data loaded. Please load normal and pneumonia folders first.');
+            throw new Error('No training data loaded. Please load normal and pneumonia images first.');
         }
 
         const allTensors = [];
         const allLabels = [];
         
         // Process normal images
+        console.log('Processing normal images...');
         this.trainingData.normal.forEach(imageData => {
             try {
                 const tensor = this.preprocessSingleImage(imageData.element);
@@ -166,6 +175,7 @@ class MedicalImageLoader {
         });
         
         // Process pneumonia images
+        console.log('Processing pneumonia images...');
         this.trainingData.pneumonia.forEach(imageData => {
             try {
                 const tensor = this.preprocessSingleImage(imageData.element);
@@ -190,13 +200,15 @@ class MedicalImageLoader {
     /**
      * Preprocess images for inference
      */
-    preprocessImages(images, targetSize = [224, 224]) {
+    preprocessImages(images) {
         this.processedTensors = [];
         this.labels = []; // Clear labels for inference
         
+        console.log('Preprocessing images for inference...');
+        
         images.forEach((imageData, index) => {
             try {
-                const tensor = this.preprocessSingleImage(imageData.element, targetSize);
+                const tensor = this.preprocessSingleImage(imageData.element);
                 this.processedTensors.push(tensor);
             } catch (error) {
                 console.error(`Error preprocessing image ${index}:`, error);
@@ -213,7 +225,7 @@ class MedicalImageLoader {
     /**
      * Preprocess single image with medical imaging considerations
      */
-    preprocessSingleImage(imgElement, targetSize = [224, 224]) {
+    preprocessSingleImage(imgElement) {
         return tf.tidy(() => {
             // Convert image to tensor
             let tensor = tf.browser.fromPixels(imgElement);
@@ -226,8 +238,8 @@ class MedicalImageLoader {
                 tensor = tensor.slice([0, 0, 0], [tensor.shape[0], tensor.shape[1], 3]);
             }
             
-            // Resize to target size (224x224 for most CNN architectures)
-            tensor = tf.image.resizeBilinear(tensor, targetSize);
+            // Resize to target size (150x150 for optimized performance)
+            tensor = tf.image.resizeBilinear(tensor, this.inputSize);
             
             // Normalize pixel values to [0, 1] range
             tensor = tensor.div(255.0);
@@ -247,7 +259,11 @@ class MedicalImageLoader {
             // Simple contrast stretching
             const min = tensor.min();
             const max = tensor.max();
-            return tensor.sub(min).div(max.sub(min));
+            const range = max.sub(min);
+            
+            // Avoid division by zero
+            const safeRange = range.add(tf.scalar(1e-7));
+            return tensor.sub(min).div(safeRange);
         });
     }
 
@@ -258,6 +274,8 @@ class MedicalImageLoader {
         const augmentedTensors = [];
         const augmentedLabels = [];
         
+        console.log(`Starting data augmentation: ${tensors.length} original images`);
+        
         tensors.forEach((tensor, index) => {
             // Add original tensor
             augmentedTensors.push(tensor);
@@ -265,9 +283,13 @@ class MedicalImageLoader {
             
             // Create augmented versions
             for (let i = 0; i < augmentationCount; i++) {
-                const augmentedTensor = this.applyAugmentation(tensor);
-                augmentedTensors.push(augmentedTensor);
-                augmentedLabels.push(labels[index]);
+                try {
+                    const augmentedTensor = this.applyAugmentation(tensor);
+                    augmentedTensors.push(augmentedTensor);
+                    augmentedLabels.push(labels[index]);
+                } catch (error) {
+                    console.warn('Augmentation failed for one image:', error);
+                }
             }
         });
         
@@ -286,12 +308,6 @@ class MedicalImageLoader {
         return tf.tidy(() => {
             let augmented = tensor;
             
-            // Random rotation (-15 to +15 degrees) - limited for medical images
-            if (this.augmentationOptions.rotation && Math.random() > 0.5) {
-                const rotationAngle = (Math.random() - 0.5) * 30; // ±15 degrees
-                augmented = this.rotateTensor(augmented, rotationAngle * Math.PI / 180);
-            }
-            
             // Random horizontal flip - common in medical imaging
             if (this.augmentationOptions.flipping && Math.random() > 0.5) {
                 augmented = augmented.reverse(1); // Horizontal flip
@@ -299,8 +315,16 @@ class MedicalImageLoader {
             
             // Random brightness adjustment
             if (this.augmentationOptions.brightness && Math.random() > 0.5) {
-                const brightnessDelta = (Math.random() - 0.5) * 0.2; // ±10%
+                const brightnessDelta = (Math.random() - 0.5) * 0.1; // ±5%
                 augmented = tf.clipByValue(augmented.add(brightnessDelta), 0, 1);
+            }
+            
+            // Random contrast adjustment
+            if (this.augmentationOptions.brightness && Math.random() > 0.5) {
+                const contrastFactor = 0.8 + Math.random() * 0.4; // 0.8 to 1.2
+                const mean = augmented.mean();
+                augmented = augmented.sub(mean).mul(contrastFactor).add(mean);
+                augmented = tf.clipByValue(augmented, 0, 1);
             }
             
             return augmented;
@@ -308,28 +332,9 @@ class MedicalImageLoader {
     }
 
     /**
-     * Rotate tensor for data augmentation
+     * Split data into training and validation sets with stratification
      */
-    rotateTensor(tensor, angle) {
-        return tf.tidy(() => {
-            const [height, width] = tensor.shape;
-            const centerX = width / 2;
-            const centerY = height / 2;
-            
-            // Create rotation matrix
-            const cos = Math.cos(angle);
-            const sin = Math.sin(angle);
-            
-            // For simplicity, using affine transform
-            // In production, consider using tf.image.transform with proper rotation
-            return tensor; // Placeholder - implement proper rotation if needed
-        });
-    }
-
-    /**
-     * Split data into training and testing sets
-     */
-    splitData(tensors, labels, testSplit = 0.2) {
+    splitData(tensors, labels, validationSplit = 0.2) {
         // Separate indices by class for stratified split
         const normalIndices = labels.map((label, idx) => label === 'Normal' ? idx : -1).filter(idx => idx !== -1);
         const pneumoniaIndices = labels.map((label, idx) => label === 'Pneumonia' ? idx : -1).filter(idx => idx !== -1);
@@ -338,36 +343,36 @@ class MedicalImageLoader {
         this.shuffleArray(normalIndices);
         this.shuffleArray(pneumoniaIndices);
         
-        // Calculate test size for each class
-        const normalTestSize = Math.floor(normalIndices.length * testSplit);
-        const pneumoniaTestSize = Math.floor(pneumoniaIndices.length * testSplit);
+        // Calculate validation size for each class
+        const normalValSize = Math.floor(normalIndices.length * validationSplit);
+        const pneumoniaValSize = Math.floor(pneumoniaIndices.length * validationSplit);
         
-        // Create test indices
-        const testIndices = [
-            ...normalIndices.slice(0, normalTestSize),
-            ...pneumoniaIndices.slice(0, pneumoniaTestSize)
+        // Create validation indices
+        const valIndices = [
+            ...normalIndices.slice(0, normalValSize),
+            ...pneumoniaIndices.slice(0, pneumoniaValSize)
         ];
         
-        // Create train indices
+        // Create training indices
         const trainIndices = [
-            ...normalIndices.slice(normalTestSize),
-            ...pneumoniaIndices.slice(pneumoniaTestSize)
+            ...normalIndices.slice(normalValSize),
+            ...pneumoniaIndices.slice(pneumoniaValSize)
         ];
         
         // Shuffle final arrays
-        this.shuffleArray(testIndices);
+        this.shuffleArray(valIndices);
         this.shuffleArray(trainIndices);
         
         const trainTensors = trainIndices.map(i => tensors[i]);
         const trainLabels = trainIndices.map(i => labels[i]);
-        const testTensors = testIndices.map(i => tensors[i]);
-        const testLabels = testIndices.map(i => labels[i]);
+        const valTensors = valIndices.map(i => tensors[i]);
+        const valLabels = valIndices.map(i => labels[i]);
         
-        console.log(`Data split: ${trainTensors.length} training, ${testTensors.length} test images`);
+        console.log(`Data split: ${trainTensors.length} training, ${valTensors.length} validation images`);
         
         return {
             train: { tensors: trainTensors, labels: trainLabels },
-            test: { tensors: testTensors, labels: testLabels }
+            validation: { tensors: valTensors, labels: valLabels }
         };
     }
 
@@ -394,7 +399,7 @@ class MedicalImageLoader {
     /**
      * Create training dataset with proper batching
      */
-    createTrainingDataset(tensors, labels, batchSize = 8) {
+    createTrainingDataset(tensors, labels) {
         const oneHotLabels = this.labelsToOneHot(labels);
         const batchedTensors = this.createBatch(tensors);
         
@@ -420,12 +425,13 @@ class MedicalImageLoader {
      */
     getClassDistribution() {
         const stats = this.getTrainingStats();
+        const total = stats.total || 1; // Avoid division by zero
         return {
             normal: stats.normal,
             pneumonia: stats.pneumonia,
             total: stats.total,
-            normalRatio: (stats.normal / stats.total * 100).toFixed(1),
-            pneumoniaRatio: (stats.pneumonia / stats.total * 100).toFixed(1)
+            normalRatio: (stats.normal / total * 100).toFixed(1),
+            pneumoniaRatio: (stats.pneumonia / total * 100).toFixed(1)
         };
     }
 
@@ -458,9 +464,12 @@ class MedicalImageLoader {
             pneumonia: []
         };
         
-        // Force garbage collection if available
+        // Force garbage collection
         if (tf.memory().numTensors > 0) {
             console.warn(`Memory leak detected: ${tf.memory().numTensors} tensors remaining`);
+            // Try to clean up
+            tf.engine().startScope();
+            tf.engine().endScope();
         }
     }
 
