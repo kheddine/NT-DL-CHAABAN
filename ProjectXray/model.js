@@ -1,6 +1,6 @@
 /**
  * Pneumonia Chest X-ray Classification Model
- * Convolutional Neural Network for medical image analysis
+ * Optimized CNN for browser-based medical image analysis
  * Educational purpose only - NOT for clinical use
  */
 
@@ -15,35 +15,58 @@ class PneumoniaClassifier {
             valAccuracy: []
         };
         this.classNames = ['Normal', 'Pneumonia'];
+        this.inputSize = [150, 150]; // Reduced for better performance
     }
 
     /**
-     * Create CNN model for chest X-ray pneumonia classification
-     * Architecture optimized for medical image analysis
+     * Initialize TensorFlow.js with fallback backends
      */
-    createModel(useTransferLearning = false) {
-        if (useTransferLearning) {
-            return this.createTransferLearningModel();
+    async initializeTFJS() {
+        const backends = ['webgl', 'cpu'];
+        let backendInfo = '';
+        
+        for (const backend of backends) {
+            try {
+                await tf.setBackend(backend);
+                backendInfo = `Using backend: ${backend}`;
+                console.log(`Successfully initialized TensorFlow.js with ${backend} backend`);
+                break;
+            } catch (error) {
+                console.warn(`Failed to initialize ${backend} backend:`, error);
+                continue;
+            }
         }
         
+        if (!tf.getBackend()) {
+            throw new Error('Failed to initialize TensorFlow.js with any backend');
+        }
+        
+        return backendInfo;
+    }
+
+    /**
+     * Create optimized CNN model for pneumonia classification
+     */
+    createModel() {
         const model = tf.sequential();
         
-        // Input layer: 224x224x3 (RGB image)
+        // First Convolutional Block
         model.add(tf.layers.conv2d({
-            inputShape: [224, 224, 3],
+            inputShape: [this.inputSize[0], this.inputSize[1], 3],
             filters: 32,
             kernelSize: 3,
             activation: 'relu',
             kernelInitializer: 'heNormal',
             name: 'conv1'
         }));
+        model.add(tf.layers.batchNormalization());
         model.add(tf.layers.maxPooling2d({
             poolSize: 2,
             strides: 2,
             name: 'pool1'
         }));
         
-        // Second convolutional block
+        // Second Convolutional Block
         model.add(tf.layers.conv2d({
             filters: 64,
             kernelSize: 3,
@@ -51,13 +74,14 @@ class PneumoniaClassifier {
             kernelInitializer: 'heNormal',
             name: 'conv2'
         }));
+        model.add(tf.layers.batchNormalization());
         model.add(tf.layers.maxPooling2d({
             poolSize: 2,
             strides: 2,
             name: 'pool2'
         }));
         
-        // Third convolutional block
+        // Third Convolutional Block
         model.add(tf.layers.conv2d({
             filters: 128,
             kernelSize: 3,
@@ -65,47 +89,26 @@ class PneumoniaClassifier {
             kernelInitializer: 'heNormal',
             name: 'conv3'
         }));
+        model.add(tf.layers.batchNormalization());
         model.add(tf.layers.maxPooling2d({
             poolSize: 2,
             strides: 2,
             name: 'pool3'
         }));
         
-        // Fourth convolutional block for deeper feature extraction
-        model.add(tf.layers.conv2d({
-            filters: 256,
-            kernelSize: 3,
-            activation: 'relu',
-            kernelInitializer: 'heNormal',
-            name: 'conv4'
-        }));
-        model.add(tf.layers.maxPooling2d({
-            poolSize: 2,
-            strides: 2,
-            name: 'pool4'
-        }));
+        // Global Average Pooling instead of Flatten to reduce parameters
+        model.add(tf.layers.globalAveragePooling2d());
         
-        // Flatten and dense layers
-        model.add(tf.layers.flatten());
+        // Classification Head
         model.add(tf.layers.dense({
-            units: 128,
+            units: 64,
             activation: 'relu',
             kernelInitializer: 'heNormal',
             name: 'dense1'
         }));
         model.add(tf.layers.dropout({
-            rate: 0.5,  // Dropout for regularization
-            name: 'dropout1'
-        }));
-        model.add(tf.layers.dense({
-            units: 64,
-            activation: 'relu',
-            kernelInitializer: 'heNormal',
-            name: 'dense2'
-        }));
-        model.add(tf.layers.dropout({
-            rate: 0.3,
-            name: 'dropout2'
+            rate: 0.5,
+            name: 'dropout'
         }));
         
         // Output layer: 2 classes (Normal, Pneumonia)
@@ -115,65 +118,24 @@ class PneumoniaClassifier {
             name: 'output'
         }));
         
-        // Compile model with medical imaging considerations
+        // Compile model with optimized settings
         model.compile({
             optimizer: tf.train.adam(0.001),
             loss: 'categoricalCrossentropy',
             metrics: ['accuracy']
         });
         
-        console.log('CNN Model created successfully for pneumonia classification');
-        return model;
-    }
-
-    /**
-     * Create model using MobileNetV2 for transfer learning
-     */
-    async createTransferLearningModel() {
-        // Load MobileNetV2 base model
-        const mobilenet = await tf.loadLayersModel(
-            'https://storage.googleapis.com/tfjs-models/tfjs/mobilenet_v2_1.0_224/model.json'
-        );
+        console.log('Optimized CNN Model created successfully');
+        console.log('Model summary:');
+        model.summary();
         
-        // Remove the top classification layer
-        const baseModel = tf.model({
-            inputs: mobilenet.inputs,
-            outputs: mobilenet.layers[mobilenet.layers.length - 3].output
-        });
-        
-        // Freeze base model layers for transfer learning
-        baseModel.trainable = false;
-        
-        // Add custom classification head for pneumonia detection
-        const model = tf.sequential();
-        model.add(baseModel);
-        model.add(tf.layers.globalAveragePooling2d());
-        model.add(tf.layers.dense({
-            units: 128,
-            activation: 'relu',
-            kernelInitializer: 'heNormal'
-        }));
-        model.add(tf.layers.dropout({ rate: 0.5 }));
-        model.add(tf.layers.dense({
-            units: 2,
-            activation: 'softmax'
-        }));
-        
-        model.compile({
-            optimizer: tf.train.adam(0.0001),
-            loss: 'categoricalCrossentropy',
-            metrics: ['accuracy']
-        });
-        
-        console.log('Transfer learning model created successfully for pneumonia classification');
         return model;
     }
 
     /**
      * Train the model with medical imaging data
-     * Includes validation split and callbacks for visualization
      */
-    async trainModel(trainingData, validationData, config) {
+    async trainModel(trainingData, validationData, config, onProgress = null) {
         if (!this.model) {
             throw new Error('Model not initialized. Call createModel() first.');
         }
@@ -195,6 +157,19 @@ class PneumoniaClassifier {
                         this.trainingHistory.accuracy.push(logs.acc);
                         this.trainingHistory.valLoss.push(logs.val_loss);
                         this.trainingHistory.valAccuracy.push(logs.val_acc);
+                        
+                        // Update progress callback
+                        if (onProgress) {
+                            const progress = {
+                                epoch: epoch + 1,
+                                totalEpochs: epochs,
+                                loss: logs.loss,
+                                accuracy: logs.acc,
+                                valLoss: logs.val_loss,
+                                valAccuracy: logs.val_acc
+                            };
+                            onProgress(progress);
+                        }
                         
                         // Update visualization
                         this.updateTrainingCharts();
@@ -226,7 +201,7 @@ class PneumoniaClassifier {
         }
 
         try {
-            // Ensure tensor has correct shape [1, 224, 224, 3]
+            // Ensure tensor has correct shape [1, 150, 150, 3]
             const batchedImage = imageTensor.expandDims(0);
             
             // Make prediction
@@ -255,13 +230,24 @@ class PneumoniaClassifier {
     async predictBatch(imageTensors) {
         const predictions = [];
         
-        for (const tensor of imageTensors) {
+        for (let i = 0; i < imageTensors.length; i++) {
             try {
-                const prediction = await this.predict(tensor);
+                const prediction = await this.predict(imageTensors[i]);
                 predictions.push(prediction);
+                
+                // Periodic cleanup to prevent memory issues
+                if (i % 10 === 0) {
+                    await tf.nextFrame();
+                }
             } catch (error) {
-                console.error('Batch prediction error for tensor:', error);
-                predictions.push(null);
+                console.error(`Batch prediction error for image ${i}:`, error);
+                predictions.push({
+                    pneumonia: 0.5,
+                    normal: 0.5,
+                    predictedClass: 'Unknown',
+                    confidence: 0.5,
+                    error: true
+                });
             }
         }
         
@@ -270,14 +256,13 @@ class PneumoniaClassifier {
 
     /**
      * Generate Grad-CAM heatmap for model interpretability
-     * Shows which regions the model focuses on for prediction
      */
-    async generateHeatmap(imageTensor, className = 'Pneumonia') {
+    async generateHeatmap(imageTensor) {
         if (!this.model) return null;
 
         try {
             // Get the last convolutional layer
-            const convLayer = this.model.getLayer('conv4');
+            const convLayer = this.model.getLayer('conv3');
             if (!convLayer) return null;
 
             // Create a model that outputs both conv layer and final prediction
@@ -291,9 +276,8 @@ class PneumoniaClassifier {
                 return gradModel.predict(batchedImage);
             });
 
-            // Get the class index (1 for Pneumonia, 0 for Normal)
-            const classIdx = className === 'Pneumonia' ? 1 : 0;
-            const output = predictions.gather([classIdx], 1);
+            // Get pneumonia class output
+            const output = predictions.gather([1], 1); // Class 1: Pneumonia
             
             // Compute gradients
             const grads = tf.grad(() => output).grad(convOutputs);
@@ -312,7 +296,7 @@ class PneumoniaClassifier {
             // Resize to original image size
             const resizedHeatmap = tf.image.resizeBilinear(
                 normalizedHeatmap.expandDims(2), 
-                [224, 224]
+                [this.inputSize[0], this.inputSize[1]]
             ).squeeze();
             
             const heatmapData = await resizedHeatmap.data();
@@ -335,6 +319,8 @@ class PneumoniaClassifier {
         let tp = 0, tn = 0, fp = 0, fn = 0;
         
         predictions.forEach((pred, idx) => {
+            if (pred.error) return; // Skip failed predictions
+            
             const trueLabel = trueLabels[idx];
             const predLabel = pred.predictedClass;
             
@@ -344,7 +330,18 @@ class PneumoniaClassifier {
             else if (trueLabel === 'Pneumonia' && predLabel === 'Normal') fn++;
         });
         
-        const accuracy = (tp + tn) / (tp + tn + fp + fn);
+        const total = tp + tn + fp + fn;
+        if (total === 0) {
+            return {
+                accuracy: 0,
+                precision: 0,
+                recall: 0,
+                f1Score: 0,
+                confusionMatrix: { tp, tn, fp, fn }
+            };
+        }
+        
+        const accuracy = (tp + tn) / total;
         const precision = tp / (tp + fp) || 0;
         const recall = tp / (tp + fn) || 0;
         const f1Score = 2 * (precision * recall) / (precision + recall) || 0;
@@ -383,17 +380,21 @@ class PneumoniaClassifier {
         // Update tfjs-vis charts
         const vizContainer = document.getElementById('modelVisualization');
         if (vizContainer) {
-            tfvis.show.history(vizContainer, lossData, ['loss'], {
-                xLabel: 'Epoch',
-                yLabel: 'Loss',
-                height: 300
-            });
-            
-            tfvis.show.history(vizContainer, accuracyData, ['acc'], {
-                xLabel: 'Epoch',
-                yLabel: 'Accuracy',
-                height: 300
-            });
+            try {
+                tfvis.show.history(vizContainer, lossData, ['loss'], {
+                    xLabel: 'Epoch',
+                    yLabel: 'Loss',
+                    height: 300
+                });
+                
+                tfvis.show.history(vizContainer, accuracyData, ['acc'], {
+                    xLabel: 'Epoch',
+                    yLabel: 'Accuracy',
+                    height: 300
+                });
+            } catch (error) {
+                console.warn('Visualization update failed:', error);
+            }
         }
     }
 
@@ -430,6 +431,19 @@ class PneumoniaClassifier {
     }
 
     /**
+     * Check if a model exists in storage
+     */
+    async modelExists(modelName = 'pneumonia-classifier') {
+        try {
+            // Try to load model info to check if it exists
+            const models = await tf.io.listModels();
+            return models.hasOwnProperty(`indexeddb://${modelName}`);
+        } catch (error) {
+            return false;
+        }
+    }
+
+    /**
      * Dispose model to free memory
      */
     dispose() {
@@ -437,6 +451,13 @@ class PneumoniaClassifier {
             this.model.dispose();
             this.model = null;
         }
+    }
+
+    /**
+     * Get memory usage statistics
+     */
+    getMemoryStats() {
+        return tf.memory();
     }
 }
 
