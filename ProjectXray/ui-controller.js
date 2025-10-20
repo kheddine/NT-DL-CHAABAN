@@ -1,12 +1,12 @@
 /**
- * UI Controller for COVID-19 Chest X-ray Classifier
+ * UI Controller for Pneumonia Chest X-ray Classifier
  * Handles user interactions, visualization, and application flow
  * Medical safety warnings and educational context emphasized throughout
  */
 
 class UIController {
     constructor() {
-        this.model = new COVID19Classifier();
+        this.model = new PneumoniaClassifier();
         this.dataLoader = new MedicalImageLoader();
         this.currentMode = 'inference';
         this.isProcessing = false;
@@ -27,12 +27,19 @@ class UIController {
         // File upload handling
         const fileInput = document.getElementById('fileInput');
         const uploadArea = document.getElementById('uploadArea');
+        const testFolder = document.getElementById('testFolder');
+        const normalFolder = document.getElementById('normalFolder');
+        const pneumoniaFolder = document.getElementById('pneumoniaFolder');
         
         uploadArea.addEventListener('click', () => fileInput.click());
         uploadArea.addEventListener('dragover', (e) => this.handleDragOver(e));
         uploadArea.addEventListener('dragleave', (e) => this.handleDragLeave(e));
         uploadArea.addEventListener('drop', (e) => this.handleFileDrop(e));
+        
         fileInput.addEventListener('change', (e) => this.handleFileSelect(e));
+        testFolder.addEventListener('change', (e) => this.handleTestFolderSelect(e));
+        normalFolder.addEventListener('change', (e) => this.handleTrainingFolderSelect(e, 'normal'));
+        pneumoniaFolder.addEventListener('change', (e) => this.handleTrainingFolderSelect(e, 'pneumonia'));
 
         // Action buttons
         document.getElementById('processBtn').addEventListener('click', () => this.processImages());
@@ -61,19 +68,28 @@ class UIController {
             btn.classList.toggle('active', btn.dataset.mode === mode);
         });
         
+        const trainingUpload = document.getElementById('trainingUpload');
+        const inferenceUpload = document.getElementById('inferenceUpload');
         const trainingControls = document.getElementById('trainingControls');
         const trainBtn = document.getElementById('trainBtn');
         const processBtn = document.getElementById('processBtn');
+        const panelTitle = document.getElementById('panelTitle');
         
         if (mode === 'training') {
+            trainingUpload.style.display = 'block';
+            inferenceUpload.style.display = 'none';
             trainingControls.style.display = 'grid';
             trainBtn.style.display = 'inline-block';
-            processBtn.textContent = 'Preprocess Images';
+            processBtn.textContent = 'Prepare Training Data';
+            panelTitle.textContent = 'Training Data Setup';
             this.showEducationalContext();
         } else {
+            trainingUpload.style.display = 'none';
+            inferenceUpload.style.display = 'block';
             trainingControls.style.display = 'none';
             trainBtn.style.display = 'none';
             processBtn.textContent = 'Classify Images';
+            panelTitle.textContent = 'Image Upload & Processing';
             this.showSafetyWarning();
         }
         
@@ -85,8 +101,8 @@ class UIController {
      */
     getModeDescription(mode) {
         const descriptions = {
-            inference: 'Upload chest X-ray images to get AI-powered classification predictions.',
-            training: 'Educational mode: Train the AI model with sample data to understand how medical AI works.'
+            inference: 'Upload chest X-ray images or folder to get AI-powered pneumonia classification predictions.',
+            training: 'Educational mode: Upload separate folders for normal and pneumonia chest X-rays to train the AI model.'
         };
         return descriptions[mode] || '';
     }
@@ -98,6 +114,61 @@ class UIController {
         const files = event.target.files;
         if (files.length > 0) {
             await this.loadAndPreviewImages(files);
+        }
+    }
+
+    /**
+     * Handle test folder selection
+     */
+    async handleTestFolderSelect(event) {
+        const files = event.target.files;
+        if (files.length > 0) {
+            await this.loadAndPreviewImages(files, true);
+        }
+    }
+
+    /**
+     * Handle training folder selection
+     */
+    async handleTrainingFolderSelect(event, folderType) {
+        const files = event.target.files;
+        if (files.length > 0) {
+            await this.handleTrainingFolder(files, folderType);
+        }
+    }
+
+    /**
+     * Process training folder and show statistics
+     */
+    async handleTrainingFolder(files, folderType) {
+        const validFiles = this.dataLoader.validateFiles(files);
+        const statsDiv = document.getElementById(`${folderType}Stats`);
+        
+        if (validFiles.length > 0) {
+            statsDiv.innerHTML = `
+                <div class="stat-card">
+                    <div class="stat-value ${folderType}-stat">${validFiles.length}</div>
+                    <div>${folderType.charAt(0).toUpperCase() + folderType.slice(1)} Images</div>
+                </div>
+            `;
+            statsDiv.style.display = 'grid';
+        } else {
+            statsDiv.style.display = 'none';
+        }
+        
+        this.checkTrainingDataReady();
+    }
+
+    /**
+     * Check if both training folders are ready
+     */
+    checkTrainingDataReady() {
+        const normalFiles = document.getElementById('normalFolder').files;
+        const pneumoniaFiles = document.getElementById('pneumoniaFolder').files;
+        
+        if (normalFiles.length > 0 && pneumoniaFiles.length > 0) {
+            document.getElementById('processBtn').disabled = false;
+            this.updateResultsArea('Training data folders selected. Click "Prepare Training Data" to continue.');
         }
     }
 
@@ -133,16 +204,16 @@ class UIController {
     /**
      * Load images and create previews
      */
-    async loadAndPreviewImages(files) {
+    async loadAndPreviewImages(files, isFolder = false) {
         this.showLoading('Loading and validating medical images...');
         
         try {
-            const images = await this.dataLoader.loadImagesFromFiles(files);
-            this.createImagePreviews(images);
+            const images = await this.dataLoader.loadTestData(files);
+            this.createImagePreviews(images, isFolder);
             document.getElementById('processBtn').disabled = false;
             this.hideLoading();
             
-            this.updateResultsArea(`Successfully loaded ${images.length} medical images. Click "Process Images" to continue.`);
+            this.updateResultsArea(`Successfully loaded ${images.length} medical images. Click "${this.currentMode === 'training' ? 'Prepare Training Data' : 'Classify Images'}" to continue.`);
         } catch (error) {
             this.hideLoading();
             this.showError(`Error loading images: ${error.message}`);
@@ -152,15 +223,22 @@ class UIController {
     /**
      * Create image preview grid
      */
-    createImagePreviews(images) {
+    createImagePreviews(images, showLabels = false) {
         const previewContainer = document.getElementById('imagePreview');
         previewContainer.innerHTML = '';
         
         images.forEach((imageData, index) => {
             const previewItem = document.createElement('div');
             previewItem.className = 'preview-item';
+            
+            let labelHtml = '';
+            if (showLabels && imageData.label) {
+                labelHtml = `<div class="preview-label">${imageData.label}</div>`;
+            }
+            
             previewItem.innerHTML = `
                 <img src="${imageData.url}" alt="Chest X-ray ${index + 1}" loading="lazy">
+                ${labelHtml}
                 <div style="padding: 5px; font-size: 0.8rem; background: white;">
                     ${imageData.file.name}
                 </div>
@@ -173,23 +251,15 @@ class UIController {
      * Process images based on current mode
      */
     async processImages() {
-        if (this.dataLoader.loadedImages.length === 0) {
-            this.showError('Please upload medical images first.');
-            return;
-        }
-        
         this.isProcessing = true;
         this.showLoading('Processing medical images...');
         document.getElementById('processBtn').disabled = true;
         
         try {
-            // Preprocess images
-            const processedData = this.dataLoader.preprocessImages(this.dataLoader.loadedImages);
-            
             if (this.currentMode === 'inference') {
-                await this.runInference(processedData.tensors);
+                await this.prepareInference();
             } else {
-                await this.prepareTraining(processedData);
+                await this.prepareTraining();
             }
             
         } catch (error) {
@@ -197,6 +267,83 @@ class UIController {
         } finally {
             this.hideLoading();
             this.isProcessing = false;
+        }
+    }
+
+    /**
+     * Prepare data for inference mode
+     */
+    async prepareInference() {
+        if (this.dataLoader.loadedImages.length === 0) {
+            this.showError('Please upload medical images first.');
+            return;
+        }
+        
+        // Preprocess images
+        const processedData = this.dataLoader.preprocessImages(this.dataLoader.loadedImages);
+        await this.runInference(processedData.tensors);
+    }
+
+    /**
+     * Prepare data for training mode
+     */
+    async prepareTraining() {
+        const normalFiles = document.getElementById('normalFolder').files;
+        const pneumoniaFiles = document.getElementById('pneumoniaFolder').files;
+        
+        if (normalFiles.length === 0 || pneumoniaFiles.length === 0) {
+            this.showError('Please select both normal and pneumonia folders for training.');
+            return;
+        }
+        
+        this.showLoading('Loading and preparing training data...');
+        
+        try {
+            // Load training data from folders
+            await this.dataLoader.loadTrainingData(normalFiles, pneumoniaFiles);
+            
+            // Prepare training dataset
+            const trainingData = this.dataLoader.prepareTrainingDataset();
+            
+            // Show training data statistics
+            const stats = this.dataLoader.getTrainingStats();
+            const distribution = this.dataLoader.getClassDistribution();
+            
+            this.updateResultsArea(`
+                <h3>Training Data Prepared</h3>
+                <div class="results-summary">
+                    <h4>Dataset Statistics</h4>
+                    <div class="folder-stats">
+                        <div class="stat-card">
+                            <div class="stat-value normal-stat">${stats.normal}</div>
+                            <div>Normal Images</div>
+                        </div>
+                        <div class="stat-card">
+                            <div class="stat-value pneumonia-stat">${stats.pneumonia}</div>
+                            <div>Pneumonia Images</div>
+                        </div>
+                        <div class="stat-card">
+                            <div class="stat-value">${stats.total}</div>
+                            <div>Total Images</div>
+                        </div>
+                        <div class="stat-card">
+                            <div class="stat-value">${distribution.normalRatio}%</div>
+                            <div>Normal Ratio</div>
+                        </div>
+                        <div class="stat-card">
+                            <div class="stat-value">${distribution.pneumoniaRatio}%</div>
+                            <div>Pneumonia Ratio</div>
+                        </div>
+                    </div>
+                </div>
+                <p>Training data is ready. Click "Start Training" to begin the educational model training process.</p>
+            `);
+            
+            this.trainingData = trainingData;
+            document.getElementById('trainBtn').disabled = false;
+            
+        } catch (error) {
+            this.showError(`Training data preparation error: ${error.message}`);
         }
     }
 
@@ -209,8 +356,13 @@ class UIController {
         try {
             // Load or create model
             if (!this.model.model) {
-                await this.model.createModel();
-                this.updateResultsArea('AI model initialized. Starting classification...');
+                try {
+                    await this.model.loadModel();
+                    this.updateResultsArea('Pre-trained model loaded. Starting classification...');
+                } catch (error) {
+                    await this.model.createModel();
+                    this.updateResultsArea('New model initialized. Starting classification...');
+                }
             }
             
             // Run predictions
@@ -229,8 +381,14 @@ class UIController {
         const resultsArea = document.getElementById('resultsArea');
         resultsArea.innerHTML = '<h3>Classification Results</h3>';
         
-        let covidCount = 0;
+        let pneumoniaCount = 0;
         let normalCount = 0;
+        
+        // Create batch results summary
+        const summaryDiv = document.createElement('div');
+        summaryDiv.className = 'batch-results';
+        
+        const resultsList = document.createElement('div');
         
         for (let i = 0; i < predictions.length; i++) {
             const prediction = predictions[i];
@@ -238,11 +396,11 @@ class UIController {
             
             const resultDiv = document.createElement('div');
             resultDiv.className = `prediction-result ${
-                prediction.predictedClass === 'COVID-19' ? 'covid-positive' : 'covid-negative'
+                prediction.predictedClass === 'Pneumonia' ? 'pneumonia-positive' : 'normal-negative'
             }`;
             
             // Count results for summary
-            if (prediction.predictedClass === 'COVID-19') covidCount++;
+            if (prediction.predictedClass === 'Pneumonia') pneumoniaCount++;
             else normalCount++;
             
             resultDiv.innerHTML = `
@@ -252,12 +410,12 @@ class UIController {
                 <div class="confidence-bar">
                     <div class="confidence-fill" style="width: ${prediction.confidence * 100}%"></div>
                 </div>
-                <div><strong>COVID-19 Probability:</strong> ${(prediction.covid * 100).toFixed(2)}%</div>
+                <div><strong>Pneumonia Probability:</strong> ${(prediction.pneumonia * 100).toFixed(2)}%</div>
                 <div><strong>Normal Probability:</strong> ${(prediction.normal * 100).toFixed(2)}%</div>
                 ${this.getConfidenceWarning(prediction.confidence)}
             `;
             
-            resultsArea.appendChild(resultDiv);
+            resultsList.appendChild(resultDiv);
             
             // Generate and display heatmap for first image
             if (i === 0) {
@@ -268,8 +426,31 @@ class UIController {
             }
         }
         
-        // Show summary with medical disclaimer
-        this.showPredictionSummary(covidCount, normalCount, predictions.length);
+        // Show batch summary
+        summaryDiv.innerHTML = `
+            <div class="results-summary">
+                <h4>Batch Summary</h4>
+                <div class="folder-stats">
+                    <div class="stat-card">
+                        <div class="stat-value normal-stat">${normalCount}</div>
+                        <div>Normal Predictions</div>
+                    </div>
+                    <div class="stat-card">
+                        <div class="stat-value pneumonia-stat">${pneumoniaCount}</div>
+                        <div>Pneumonia Predictions</div>
+                    </div>
+                    <div class="stat-card">
+                        <div class="stat-value">${predictions.length}</div>
+                        <div>Total Images</div>
+                    </div>
+                </div>
+            </div>
+        `;
+        
+        resultsArea.appendChild(summaryDiv);
+        resultsArea.appendChild(resultsList);
+        
+        this.showPredictionSummary(pneumoniaCount, normalCount, predictions.length);
         this.showSafetyWarning();
     }
 
@@ -321,7 +502,7 @@ class UIController {
     /**
      * Show prediction summary with strong medical disclaimers
      */
-    showPredictionSummary(covidCount, normalCount, totalCount) {
+    showPredictionSummary(pneumoniaCount, normalCount, totalCount) {
         const summary = document.createElement('div');
         summary.className = 'prediction-result';
         summary.style.background = '#fff3cd';
@@ -330,7 +511,7 @@ class UIController {
         summary.innerHTML = `
             <h3>📊 Summary Report</h3>
             <div><strong>Total Images Processed:</strong> ${totalCount}</div>
-            <div><strong>COVID-19 Predictions:</strong> ${covidCount}</div>
+            <div><strong>Pneumonia Predictions:</strong> ${pneumoniaCount}</div>
             <div><strong>Normal Predictions:</strong> ${normalCount}</div>
             <div style="margin-top: 15px; padding: 10px; background: #f8d7da; border-radius: 5px;">
                 <strong>⚠️ MEDICAL DISCLAIMER:</strong><br>
@@ -341,41 +522,6 @@ class UIController {
         `;
         
         document.getElementById('resultsArea').prepend(summary);
-    }
-
-    /**
-     * Prepare data for training mode
-     */
-    async prepareTraining(processedData) {
-        this.updateResultsArea('Preparing training data with medical image augmentations...');
-        
-        // Generate synthetic data for demonstration (in real scenario, use actual labeled data)
-        const syntheticData = this.dataLoader.generateSyntheticData(20);
-        const augmentedData = this.dataLoader.augmentData(
-            syntheticData.tensors, 
-            syntheticData.labels, 
-            3
-        );
-        
-        // Split data
-        const splitData = this.dataLoader.splitData(
-            augmentedData.tensors, 
-            augmentedData.labels, 
-            document.getElementById('testSplit').value / 100
-        );
-        
-        // Create training dataset
-        const trainingData = this.dataLoader.createTrainingDataset(
-            splitData.train.tensors,
-            splitData.train.labels,
-            parseInt(document.getElementById('batchSize').value)
-        );
-        
-        this.trainingData = trainingData;
-        this.testData = splitData.test;
-        
-        document.getElementById('trainBtn').disabled = false;
-        this.updateResultsArea('Training data prepared. Click "Start Training" to begin educational model training.');
     }
 
     /**
@@ -394,6 +540,20 @@ class UIController {
             // Create model
             this.model.model = this.model.createModel();
             
+            // Split data
+            const splitData = this.dataLoader.splitData(
+                this.trainingData.tensors,
+                this.trainingData.labels,
+                document.getElementById('testSplit').value / 100
+            );
+            
+            // Create training dataset
+            const trainingDataset = this.dataLoader.createTrainingDataset(
+                splitData.train.tensors,
+                splitData.train.labels,
+                parseInt(document.getElementById('batchSize').value)
+            );
+            
             const config = {
                 epochs: parseInt(document.getElementById('epochs').value),
                 batchSize: parseInt(document.getElementById('batchSize').value),
@@ -401,12 +561,19 @@ class UIController {
             };
             
             // Train model
-            await this.model.trainModel(this.trainingData, this.testData, config);
+            await this.model.trainModel(trainingDataset, splitData.test, config);
             
             // Evaluate model
-            await this.evaluateModel();
+            if (splitData.test.tensors.length > 0) {
+                const testPredictions = await this.model.predictBatch(splitData.test.tensors);
+                const metrics = this.model.calculateMetrics(testPredictions, splitData.test.labels);
+                this.displayTrainingMetrics(metrics);
+            }
             
-            this.updateResultsArea('Educational training completed! Model is ready for inference.');
+            // Save model
+            await this.model.saveModel();
+            
+            this.updateResultsArea('Educational training completed! Model is saved and ready for inference.');
             
         } catch (error) {
             this.showError(`Training error: ${error.message}`);
@@ -416,42 +583,30 @@ class UIController {
     }
 
     /**
-     * Evaluate model performance
-     */
-    async evaluateModel() {
-        if (!this.testData) return;
-        
-        const testTensors = this.dataLoader.createBatch(this.testData.tensors);
-        const testLabels = this.dataLoader.labelsToOneHot(this.testData.labels);
-        
-        const evaluation = this.model.model.evaluate(testTensors, testLabels);
-        const loss = evaluation[0].dataSync()[0];
-        const accuracy = evaluation[1].dataSync()[0];
-        
-        // Display metrics
-        this.displayTrainingMetrics(accuracy);
-        
-        // Cleanup
-        testTensors.dispose();
-        testLabels.dispose();
-        evaluation.forEach(tensor => tensor.dispose());
-    }
-
-    /**
      * Display training performance metrics
      */
-    displayTrainingMetrics(accuracy) {
+    displayTrainingMetrics(metrics) {
         const metricsGrid = document.getElementById('metricsGrid');
         metricsGrid.innerHTML = `
             <div class="metric-card">
                 <div class="metric-title">Accuracy</div>
-                <div class="metric-value accuracy">${(accuracy * 100).toFixed(2)}%</div>
-                <div>Model performance on test data</div>
+                <div class="metric-value accuracy">${metrics.accuracy}%</div>
+                <div>Overall performance</div>
             </div>
             <div class="metric-card">
-                <div class="metric-title">Educational Use</div>
-                <div class="metric-value">🎓</div>
-                <div>Research purposes only</div>
+                <div class="metric-title">Precision</div>
+                <div class="metric-value precision">${metrics.precision}%</div>
+                <div>Pneumonia detection accuracy</div>
+            </div>
+            <div class="metric-card">
+                <div class="metric-title">Recall</div>
+                <div class="metric-value recall">${metrics.recall}%</div>
+                <div>Pneumonia detection rate</div>
+            </div>
+            <div class="metric-card">
+                <div class="metric-title">F1-Score</div>
+                <div class="metric-value f1">${metrics.f1Score}%</div>
+                <div>Overall balance</div>
             </div>
         `;
         metricsGrid.style.display = 'grid';
@@ -464,15 +619,15 @@ class UIController {
         this.updateResultsArea(`
             <h3>🎓 Educational Training Mode</h3>
             <p>This mode demonstrates how AI models are trained for medical image analysis:</p>
-            <ul>
-                <li>Learn about convolutional neural networks (CNNs)</li>
-                <li>Understand data augmentation techniques</li>
-                <li>See training progress in real-time</li>
-                <li>Explore model performance metrics</li>
-            </ul>
+            <ol>
+                <li><strong>Select Folders:</strong> Choose separate folders for normal and pneumonia chest X-rays</li>
+                <li><strong>Prepare Data:</strong> The system will preprocess and augment the images</li>
+                <li><strong>Train Model:</strong> Watch as the AI learns to distinguish between normal and pneumonia cases</li>
+                <li><strong>Evaluate:</strong> See performance metrics on test data</li>
+            </ol>
             <div class="medical-disclaimer">
-                <strong>Important:</strong> This is a simulation with synthetic data. 
-                Real medical AI requires extensive validation and regulatory approval.
+                <strong>Important:</strong> This is for educational purposes only. 
+                Real medical AI requires extensive validation, clinical testing, and regulatory approval.
             </div>
         `);
     }
@@ -555,8 +710,15 @@ class UIController {
         document.getElementById('processBtn').disabled = true;
         document.getElementById('trainBtn').disabled = true;
         
-        // Clear file input
+        // Clear file inputs
         document.getElementById('fileInput').value = '';
+        document.getElementById('testFolder').value = '';
+        document.getElementById('normalFolder').value = '';
+        document.getElementById('pneumoniaFolder').value = '';
+        
+        // Clear stats
+        document.getElementById('normalStats').style.display = 'none';
+        document.getElementById('pneumoniaStats').style.display = 'none';
         
         // Show appropriate message based on mode
         if (this.currentMode === 'training') {
