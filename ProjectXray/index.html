@@ -146,11 +146,55 @@
             border-color: var(--primary);
         }
         
+        .folder-upload-section {
+            margin: 20px 0;
+            padding: 20px;
+            background: #f8f9fa;
+            border-radius: 10px;
+        }
+        
+        .folder-upload-item {
+            margin-bottom: 15px;
+        }
+        
+        .folder-upload-item label {
+            display: block;
+            margin-bottom: 8px;
+            font-weight: bold;
+            color: var(--dark);
+        }
+        
+        .folder-stats {
+            display: grid;
+            grid-template-columns: 1fr 1fr;
+            gap: 15px;
+            margin-top: 15px;
+        }
+        
+        .stat-card {
+            background: white;
+            padding: 15px;
+            border-radius: 8px;
+            text-align: center;
+            border: 2px solid var(--light);
+        }
+        
+        .stat-value {
+            font-size: 1.5rem;
+            font-weight: bold;
+            margin: 5px 0;
+        }
+        
+        .normal-stat { color: var(--success); }
+        .pneumonia-stat { color: var(--danger); }
+        
         .image-preview {
             display: grid;
             grid-template-columns: repeat(auto-fill, minmax(150px, 1fr));
             gap: 10px;
             margin-top: 20px;
+            max-height: 300px;
+            overflow-y: auto;
         }
         
         .preview-item {
@@ -164,6 +208,17 @@
             width: 100%;
             height: 120px;
             object-fit: cover;
+        }
+        
+        .preview-label {
+            position: absolute;
+            top: 5px;
+            right: 5px;
+            background: rgba(0,0,0,0.7);
+            color: white;
+            padding: 2px 6px;
+            border-radius: 4px;
+            font-size: 0.7rem;
         }
         
         .btn {
@@ -199,6 +254,8 @@
         
         .results-area {
             margin-top: 20px;
+            max-height: 600px;
+            overflow-y: auto;
         }
         
         .prediction-result {
@@ -208,12 +265,12 @@
             background: var(--light);
         }
         
-        .covid-positive {
+        .pneumonia-positive {
             border-left: 5px solid var(--danger);
             background: #ffeaea;
         }
         
-        .covid-negative {
+        .normal-negative {
             border-left: 5px solid var(--success);
             background: #eaffea;
         }
@@ -317,6 +374,18 @@
             border-radius: 8px;
         }
         
+        .batch-results {
+            margin-top: 20px;
+        }
+        
+        .results-summary {
+            background: white;
+            padding: 20px;
+            border-radius: 10px;
+            margin-bottom: 20px;
+            border: 2px solid var(--light);
+        }
+        
         footer {
             text-align: center;
             padding: 20px;
@@ -328,7 +397,7 @@
 <body>
     <div class="container">
         <header class="header">
-            <h1 class="app-title">COVID-19 Chest X-ray Classifier</h1>
+            <h1 class="app-title">Chest X-ray Pneumonia Classifier</h1>
             <p class="app-subtitle">Educational Tool for Medical Imaging AI Research</p>
             
             <div class="medical-disclaimer" role="alert" aria-live="polite">
@@ -345,14 +414,42 @@
         <div class="content-area">
             <!-- Left Panel - Input & Controls -->
             <div class="panel">
-                <h2 class="panel-title">Image Upload & Processing</h2>
+                <h2 class="panel-title" id="panelTitle">Image Upload & Processing</h2>
                 
-                <div class="upload-area" id="uploadArea" role="button" tabindex="0" aria-label="Drag and drop area for chest X-ray images">
-                    <div class="upload-icon" style="font-size: 3rem; margin-bottom: 10px;">📁</div>
-                    <h3>Upload Chest X-ray Images</h3>
-                    <p>Drag & drop JPG/PNG files or click to browse</p>
-                    <p><small>Maximum 10MB per file, up to 50 images</small></p>
-                    <input type="file" id="fileInput" accept=".jpg,.jpeg,.png" multiple style="display: none;">
+                <!-- Training Mode Upload -->
+                <div id="trainingUpload" style="display: none;">
+                    <div class="folder-upload-section">
+                        <h3>Training Data Folders</h3>
+                        <p>Select folders containing labeled chest X-ray images</p>
+                        
+                        <div class="folder-upload-item">
+                            <label for="normalFolder">Normal Chest X-rays Folder</label>
+                            <input type="file" id="normalFolder" webkitdirectory directory multiple>
+                            <div id="normalStats" class="folder-stats" style="display: none;"></div>
+                        </div>
+                        
+                        <div class="folder-upload-item">
+                            <label for="pneumoniaFolder">Pneumonia Chest X-rays Folder</label>
+                            <input type="file" id="pneumoniaFolder" webkitdirectory directory multiple>
+                            <div id="pneumoniaStats" class="folder-stats" style="display: none;"></div>
+                        </div>
+                    </div>
+                </div>
+
+                <!-- Inference Mode Upload -->
+                <div id="inferenceUpload">
+                    <div class="upload-area" id="uploadArea" role="button" tabindex="0" aria-label="Drag and drop area for chest X-ray images">
+                        <div class="upload-icon" style="font-size: 3rem; margin-bottom: 10px;">📁</div>
+                        <h3>Upload Chest X-ray Images or Folder</h3>
+                        <p>Drag & drop JPG/PNG files/folders or click to browse</p>
+                        <p><small>Maximum 10MB per file, up to 50 images</small></p>
+                        <input type="file" id="fileInput" accept=".jpg,.jpeg,.png" multiple style="display: none;">
+                    </div>
+                    
+                    <div class="folder-upload-item">
+                        <label for="testFolder">Or select test folder:</label>
+                        <input type="file" id="testFolder" webkitdirectory directory multiple>
+                    </div>
                 </div>
                 
                 <div class="image-preview" id="imagePreview" aria-live="polite"></div>
