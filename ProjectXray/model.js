@@ -59,7 +59,6 @@ class PneumoniaClassifier {
             kernelInitializer: 'heNormal',
             name: 'conv1'
         }));
-        model.add(tf.layers.batchNormalization());
         model.add(tf.layers.maxPooling2d({
             poolSize: 2,
             strides: 2,
@@ -74,7 +73,6 @@ class PneumoniaClassifier {
             kernelInitializer: 'heNormal',
             name: 'conv2'
         }));
-        model.add(tf.layers.batchNormalization());
         model.add(tf.layers.maxPooling2d({
             poolSize: 2,
             strides: 2,
@@ -89,26 +87,36 @@ class PneumoniaClassifier {
             kernelInitializer: 'heNormal',
             name: 'conv3'
         }));
-        model.add(tf.layers.batchNormalization());
         model.add(tf.layers.maxPooling2d({
             poolSize: 2,
             strides: 2,
             name: 'pool3'
         }));
         
-        // Global Average Pooling instead of Flatten to reduce parameters
-        model.add(tf.layers.globalAveragePooling2d());
+        // Flatten and Classification Head
+        model.add(tf.layers.flatten());
         
-        // Classification Head
+        // Dense layers with dropout for regularization
         model.add(tf.layers.dense({
-            units: 64,
+            units: 128,
             activation: 'relu',
             kernelInitializer: 'heNormal',
             name: 'dense1'
         }));
         model.add(tf.layers.dropout({
             rate: 0.5,
-            name: 'dropout'
+            name: 'dropout1'
+        }));
+        
+        model.add(tf.layers.dense({
+            units: 64,
+            activation: 'relu',
+            kernelInitializer: 'heNormal',
+            name: 'dense2'
+        }));
+        model.add(tf.layers.dropout({
+            rate: 0.3,
+            name: 'dropout2'
         }));
         
         // Output layer: 2 classes (Normal, Pneumonia)
@@ -126,8 +134,15 @@ class PneumoniaClassifier {
         });
         
         console.log('Optimized CNN Model created successfully');
+        
+        // Print model summary
         console.log('Model summary:');
-        model.summary();
+        let totalParams = 0;
+        model.layers.forEach(layer => {
+            console.log(`${layer.name}: ${layer.outputShape} - ${layer.countParams()} parameters`);
+            totalParams += layer.countParams();
+        });
+        console.log(`Total parameters: ${totalParams}`);
         
         return model;
     }
@@ -146,10 +161,13 @@ class PneumoniaClassifier {
         const { epochs, batchSize, validationSplit } = config;
         
         try {
+            console.log(`Starting training with ${epochs} epochs, batch size ${batchSize}`);
+            
             const history = await this.model.fit(trainingData.xs, trainingData.ys, {
                 epochs: epochs,
                 batchSize: batchSize,
                 validationSplit: validationSplit,
+                verbose: 1, // Show training progress in console
                 callbacks: {
                     onEpochEnd: async (epoch, logs) => {
                         // Update training history
@@ -157,6 +175,8 @@ class PneumoniaClassifier {
                         this.trainingHistory.accuracy.push(logs.acc);
                         this.trainingHistory.valLoss.push(logs.val_loss);
                         this.trainingHistory.valAccuracy.push(logs.val_acc);
+                        
+                        console.log(`Epoch ${epoch + 1}: loss=${logs.loss.toFixed(4)}, accuracy=${logs.acc.toFixed(4)}, val_loss=${logs.val_loss.toFixed(4)}, val_accuracy=${logs.val_acc.toFixed(4)}`);
                         
                         // Update progress callback
                         if (onProgress) {
@@ -179,7 +199,7 @@ class PneumoniaClassifier {
                     },
                     onTrainEnd: () => {
                         this.isTraining = false;
-                        console.log('Training completed');
+                        console.log('Training completed successfully');
                     }
                 }
             });
@@ -263,7 +283,10 @@ class PneumoniaClassifier {
         try {
             // Get the last convolutional layer
             const convLayer = this.model.getLayer('conv3');
-            if (!convLayer) return null;
+            if (!convLayer) {
+                console.warn('conv3 layer not found for heatmap generation');
+                return null;
+            }
 
             // Create a model that outputs both conv layer and final prediction
             const gradModel = tf.model({
