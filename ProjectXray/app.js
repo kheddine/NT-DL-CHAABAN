@@ -1,6 +1,3 @@
-import DataLoader from './data-loader.js';
-import GRUModel from './gru.js';
-
 class RetailForecastingApp {
     constructor() {
         this.dataLoader = new DataLoader();
@@ -9,6 +6,8 @@ class RetailForecastingApp {
         this.isModelTrained = false;
         this.predictions = {};
         this.metrics = {};
+        this.forecastChartInstance = null;
+        this.accuracyChartInstance = null;
         
         this.initializeEventListeners();
         this.checkForSavedModel();
@@ -50,12 +49,16 @@ class RetailForecastingApp {
     }
 
     async checkForSavedModel() {
-        const loaded = await this.model.loadModel();
-        if (loaded) {
-            this.isModelTrained = true;
-            document.getElementById('trainModel').disabled = true;
-            document.getElementById('trainModel').textContent = 'Model Loaded from Storage';
-            this.showNotification('Model loaded from browser storage', 'success');
+        try {
+            const loaded = await this.model.loadModel();
+            if (loaded) {
+                this.isModelTrained = true;
+                document.getElementById('trainModel').disabled = true;
+                document.getElementById('trainModel').textContent = 'Model Loaded from Storage';
+                this.showNotification('Model loaded from browser storage', 'success');
+            }
+        } catch (error) {
+            console.log('Error loading model:', error);
         }
     }
 
@@ -68,6 +71,9 @@ class RetailForecastingApp {
 
         try {
             this.showNotification('Loading CSV file...', 'info');
+            document.getElementById('loadData').disabled = true;
+            document.getElementById('loadData').textContent = 'Loading...';
+
             await this.dataLoader.loadCSV(file);
             
             this.showNotification('Preprocessing data...', 'info');
@@ -78,13 +84,16 @@ class RetailForecastingApp {
             
             const productCount = this.dataLoader.getAllProducts().length;
             document.getElementById('dataInfo').innerHTML = 
-                `<div class="alert alert-success">✅ Loaded ${productCount} products successfully</div>`;
+                `<div class="alert alert-success">✅ Loaded ${this.dataLoader.rawData.length} rows, ${productCount} products successfully</div>`;
                 
             this.showNotification('Data loaded and processed successfully', 'success');
             
         } catch (error) {
             this.showNotification(`Error loading data: ${error.message}`, 'error');
             console.error(error);
+        } finally {
+            document.getElementById('loadData').disabled = false;
+            document.getElementById('loadData').textContent = 'Process Data';
         }
     }
 
@@ -95,21 +104,23 @@ class RetailForecastingApp {
         }
 
         try {
-            const epochs = parseInt(document.getElementById('epochs').value);
-            const batchSize = parseInt(document.getElementById('batchSize').value);
-            const learningRate = parseFloat(document.getElementById('learningRate').value);
+            const epochs = parseInt(document.getElementById('epochs').value) || 20;
+            const batchSize = parseInt(document.getElementById('batchSize').value) || 32;
+            const learningRate = parseFloat(document.getElementById('learningRate').value) || 0.001;
 
             document.getElementById('trainModel').disabled = true;
+            document.getElementById('trainModel').textContent = 'Training...';
             document.getElementById('trainingProgress').innerHTML = 
-                '<div class="progress"><div class="progress-bar progress-bar-striped progress-bar-animated" style="width: 0%"></div></div>';
+                '<div class="progress"><div class="progress-bar progress-bar-striped progress-bar-animated" style="width: 0%">Starting...</div></div>';
 
             // Prepare data
             const { trainData, testData } = this.dataLoader.prepareTrainTestSplit();
             
             // Create and train model
-            const inputShape = [30, this.calculateFeatureCount()];
-            this.model.createModel(inputShape, learningRate);
+            const featureCount = this.dataLoader.getFeatureCount();
+            this.model.createModel([30, featureCount], learningRate);
             
+            console.log('Starting model training...');
             await this.model.trainModel(trainData.sequences, trainData.targets, epochs, batchSize);
             
             // Make predictions and calculate metrics
@@ -124,19 +135,10 @@ class RetailForecastingApp {
             
         } catch (error) {
             this.showNotification(`Training failed: ${error.message}`, 'error');
-            console.error(error);
+            console.error('Training error:', error);
             document.getElementById('trainModel').disabled = false;
+            document.getElementById('trainModel').textContent = 'Train Model';
         }
-    }
-
-    calculateFeatureCount() {
-        const featureInfo = this.dataLoader.getFeatureInfo();
-        return 1 + // Order_Demand
-               featureInfo.categories.Warehouse.length +
-               featureInfo.categories.Product_Category.length +
-               4 + // Open, Promo, StateHoliday, SchoolHoliday
-               1 + // Petrol_price
-               2;  // Day of week (sine/cosine)
     }
 
     updateTrainingProgress(progress) {
@@ -144,7 +146,9 @@ class RetailForecastingApp {
         const percent = (progress.epoch / progress.totalEpochs) * 100;
         
         progressBar.style.width = `${percent}%`;
-        progressBar.textContent = `Epoch ${progress.epoch}/${progress.totalEpochs} - Loss: ${progress.loss?.toFixed(4)}`;
+        const lossText = progress.loss ? `Loss: ${progress.loss.toFixed(4)}` : '';
+        const valLossText = progress.valLoss ? `Val Loss: ${progress.valLoss.toFixed(4)}` : '';
+        progressBar.textContent = `Epoch ${progress.epoch}/${progress.totalEpochs} ${lossText} ${valLossText}`;
     }
 
     async generatePredictionsAndMetrics(testData) {
@@ -154,8 +158,8 @@ class RetailForecastingApp {
             products: {}
         };
 
+        console.log('Generating predictions...');
         const predictions = await this.model.predict(testData.sequences);
-        const featureInfo = this.dataLoader.getFeatureInfo();
 
         // Group predictions by product
         testData.productMap.forEach((productId, index) => {
@@ -167,7 +171,7 @@ class RetailForecastingApp {
                     this.dataLoader.denormalizeValue(val, 'Order_Demand')
                 ),
                 predicted: predictions[index].map(val => 
-                    this.dataLoader.denormalizeValue(val, 'Order_Demand')
+                    this.dataLoader.denormalizeValue(Math.max(0, val), 'Order_Demand') // Ensure non-negative
                 )
             });
         });
@@ -180,6 +184,8 @@ class RetailForecastingApp {
 
         // Calculate global metrics
         this.calculateGlobalMetrics();
+        
+        console.log('Metrics calculated:', this.metrics);
     }
 
     calculateProductMetrics(productPredictions) {
@@ -213,16 +219,20 @@ class RetailForecastingApp {
             }
         });
 
+        const directionalPoints = totalPoints - productPredictions.length;
+
         return {
             mae: totalMae / totalPoints,
             rmse: Math.sqrt(totalMse / totalPoints),
             mape: totalMape / totalPoints,
-            directionalAccuracy: (totalDirectional / (totalPoints - productPredictions.length)) * 100
+            directionalAccuracy: directionalPoints > 0 ? (totalDirectional / directionalPoints) * 100 : 0
         };
     }
 
     calculateGlobalMetrics() {
         const productMetrics = Object.values(this.metrics.products);
+        if (productMetrics.length === 0) return;
+
         this.metrics.global = {
             mae: productMetrics.reduce((sum, m) => sum + m.mae, 0) / productMetrics.length,
             rmse: productMetrics.reduce((sum, m) => sum + m.rmse, 0) / productMetrics.length,
@@ -232,6 +242,8 @@ class RetailForecastingApp {
     }
 
     updateUIAfterTraining() {
+        document.getElementById('trainModel').textContent = 'Training Complete';
+        
         // Update global metrics
         this.displayGlobalMetrics();
         
@@ -250,7 +262,7 @@ class RetailForecastingApp {
         document.getElementById('globalMetrics').innerHTML = `
             <div class="col-md-3">
                 <div class="card text-white bg-primary">
-                    <div class="card-body">
+                    <div class="card-body text-center">
                         <h5 class="card-title">MAE</h5>
                         <h2 class="card-text">${global.mae.toFixed(2)}</h2>
                     </div>
@@ -258,7 +270,7 @@ class RetailForecastingApp {
             </div>
             <div class="col-md-3">
                 <div class="card text-white bg-success">
-                    <div class="card-body">
+                    <div class="card-body text-center">
                         <h5 class="card-title">RMSE</h5>
                         <h2 class="card-text">${global.rmse.toFixed(2)}</h2>
                     </div>
@@ -266,7 +278,7 @@ class RetailForecastingApp {
             </div>
             <div class="col-md-3">
                 <div class="card text-white bg-warning">
-                    <div class="card-body">
+                    <div class="card-body text-center">
                         <h5 class="card-title">MAPE</h5>
                         <h2 class="card-text">${global.mape.toFixed(1)}%</h2>
                     </div>
@@ -274,7 +286,7 @@ class RetailForecastingApp {
             </div>
             <div class="col-md-3">
                 <div class="card text-white bg-info">
-                    <div class="card-body">
+                    <div class="card-body text-center">
                         <h5 class="card-title">Directional Acc</h5>
                         <h2 class="card-text">${global.directionalAccuracy.toFixed(1)}%</h2>
                     </div>
@@ -301,24 +313,35 @@ class RetailForecastingApp {
             option.textContent = `${productData.productInfo.code} (MAPE: ${mape.toFixed(1)}%)`;
             select.appendChild(option);
         });
+
+        // Auto-select first product
+        if (sortedProducts.length > 0) {
+            select.value = sortedProducts[0];
+            this.displayProductForecast(sortedProducts[0]);
+        }
     }
 
     createAccuracyChart() {
         const ctx = document.getElementById('accuracyChart').getContext('2d');
         
-        // Get top 20 products by accuracy (lowest MAPE)
+        // Destroy existing chart if it exists
+        if (this.accuracyChartInstance) {
+            this.accuracyChartInstance.destroy();
+        }
+        
+        // Get top 15 products by accuracy (lowest MAPE)
         const sortedProducts = Object.keys(this.metrics.products)
             .sort((a, b) => this.metrics.products[a].mape - this.metrics.products[b].mape)
-            .slice(0, 20);
+            .slice(0, 15);
         
         const labels = sortedProducts.map(id => {
             const data = this.dataLoader.getProductData(id);
-            return data.productInfo.code;
+            return data.productInfo.code.substring(0, 15) + (data.productInfo.code.length > 15 ? '...' : '');
         });
         
         const data = sortedProducts.map(id => this.metrics.products[id].mape);
         
-        new Chart(ctx, {
+        this.accuracyChartInstance = new Chart(ctx, {
             type: 'bar',
             data: {
                 labels: labels,
@@ -332,6 +355,7 @@ class RetailForecastingApp {
             },
             options: {
                 responsive: true,
+                maintainAspectRatio: false,
                 scales: {
                     y: {
                         beginAtZero: true,
@@ -344,6 +368,10 @@ class RetailForecastingApp {
                         title: {
                             display: true,
                             text: 'Products'
+                        },
+                        ticks: {
+                            maxRotation: 45,
+                            minRotation: 45
                         }
                     }
                 }
@@ -390,19 +418,22 @@ class RetailForecastingApp {
                         data: prediction.actual,
                         borderColor: 'rgb(75, 192, 192)',
                         backgroundColor: 'rgba(75, 192, 192, 0.2)',
-                        tension: 0.1
+                        tension: 0.1,
+                        borderWidth: 2
                     },
                     {
                         label: 'Predicted Demand',
                         data: prediction.predicted,
                         borderColor: 'rgb(255, 99, 132)',
                         backgroundColor: 'rgba(255, 99, 132, 0.2)',
-                        tension: 0.1
+                        tension: 0.1,
+                        borderWidth: 2
                     }
                 ]
             },
             options: {
                 responsive: true,
+                maintainAspectRatio: false,
                 plugins: {
                     title: {
                         display: true,
@@ -430,7 +461,7 @@ class RetailForecastingApp {
             const actual = prediction.actual[i];
             const predicted = prediction.predicted[i];
             const error = actual - predicted;
-            const errorPercent = (Math.abs(error) / actual) * 100;
+            const errorPercent = actual > 0 ? (Math.abs(error) / actual) * 100 : 0;
             
             const row = document.createElement('tr');
             row.innerHTML = `
@@ -458,7 +489,7 @@ class RetailForecastingApp {
                 const actual = lastPrediction.actual[i];
                 const predicted = lastPrediction.predicted[i];
                 const error = actual - predicted;
-                const errorPercent = (Math.abs(error) / actual) * 100;
+                const errorPercent = actual > 0 ? (Math.abs(error) / actual) * 100 : 0;
                 
                 csvContent += `"${productData.productInfo.code}","${productId}",${i + 1},${actual.toFixed(2)},${predicted.toFixed(2)},${error.toFixed(2)},${errorPercent.toFixed(2)}\n`;
             }
@@ -469,12 +500,17 @@ class RetailForecastingApp {
         const a = document.createElement('a');
         a.href = url;
         a.download = 'retail_forecasts.csv';
+        document.body.appendChild(a);
         a.click();
+        document.body.removeChild(a);
         window.URL.revokeObjectURL(url);
     }
 
     showNotification(message, type = 'info') {
-        // Simple notification implementation
+        // Remove existing notifications
+        const existingAlerts = document.querySelectorAll('.alert-dismissible');
+        existingAlerts.forEach(alert => alert.remove());
+        
         const alertClass = type === 'error' ? 'alert-danger' : 
                           type === 'success' ? 'alert-success' : 'alert-info';
         
