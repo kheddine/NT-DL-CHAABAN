@@ -1,155 +1,402 @@
 <!DOCTYPE html>
 <html lang="en">
 <head>
-  <meta charset="UTF-8" />
-  <meta name="viewport" content="width=device-width, initial-scale=1.0" />
-  <title>COVID-19 Chest X-ray Classifier (Educational)</title>
-
-  <!-- TensorFlow.js and tfjs-vis -->
-  <script src="https://cdn.jsdelivr.net/npm/@tensorflow/tfjs@4.16.0/dist/tf.min.js"></script>
-  <script src="https://cdn.jsdelivr.net/npm/@tensorflow/tfjs-vis@1.5.1/dist/tfjs-vis.umd.min.js"></script>
-
-  <link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=Inter:wght@400;600&display=swap" />
-  <style>
-    body {
-      font-family: 'Inter', sans-serif;
-      background: #f9f9fb;
-      margin: 0;
-      padding: 0;
-      color: #222;
-    }
-    header {
-      background: #0366d6;
-      color: white;
-      padding: 1rem 2rem;
-      text-align: center;
-    }
-    header h1 {
-      margin: 0.3rem 0;
-    }
-    .container {
-      padding: 1.5rem;
-      max-width: 1200px;
-      margin: auto;
-    }
-    .mode-buttons {
-      display: flex;
-      gap: 1rem;
-      justify-content: center;
-      margin-bottom: 1.5rem;
-    }
-    button {
-      background: #0366d6;
-      color: white;
-      border: none;
-      padding: 0.7rem 1.2rem;
-      border-radius: 6px;
-      cursor: pointer;
-      font-size: 1rem;
-      transition: background 0.2s ease;
-    }
-    button:hover {
-      background: #024a9a;
-    }
-    #upload-area {
-      border: 2px dashed #0366d6;
-      border-radius: 10px;
-      padding: 2rem;
-      text-align: center;
-      margin-bottom: 1rem;
-      background: white;
-    }
-    #upload-area.dragover {
-      background: #eaf2fc;
-    }
-    #image-preview {
-      display: flex;
-      flex-wrap: wrap;
-      gap: 10px;
-      justify-content: center;
-      margin-top: 1rem;
-    }
-    .preview-item img {
-      width: 150px;
-      height: 150px;
-      object-fit: cover;
-      border-radius: 8px;
-      box-shadow: 0 2px 6px rgba(0,0,0,0.15);
-    }
-    #output {
-      margin-top: 2rem;
-    }
-    .prediction {
-      background: white;
-      border-radius: 8px;
-      padding: 1rem;
-      box-shadow: 0 1px 4px rgba(0,0,0,0.1);
-      margin-bottom: 1rem;
-    }
-    .disclaimer {
-      font-size: 0.9rem;
-      color: #a00;
-      background: #fff2f2;
-      border: 1px solid #e5b3b3;
-      border-radius: 6px;
-      padding: 1rem;
-      margin-top: 1rem;
-    }
-    canvas {
-      max-width: 100%;
-    }
-    @media (max-width: 768px) {
-      #image-preview img {
-        width: 100px;
-        height: 100px;
-      }
-    }
-  </style>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>COVID-19 Chest X-ray Classifier - Educational Tool</title>
+    <script src="https://cdn.jsdelivr.net/npm/@tensorflow/tfjs@4.15.0"></script>
+    <script src="https://cdn.jsdelivr.net/npm/@tensorflow/tfjs-vis@1.5.1"></script>
+    <style>
+        :root {
+            --primary-color: #2c3e50;
+            --secondary-color: #3498db;
+            --danger-color: #e74c3c;
+            --success-color: #27ae60;
+            --warning-color: #f39c12;
+            --light-bg: #ecf0f1;
+        }
+        
+        * {
+            margin: 0;
+            padding: 0;
+            box-sizing: border-box;
+        }
+        
+        body {
+            font-family: 'Segoe UI', Tahoma, Geneva, Verdana, sans-serif;
+            line-height: 1.6;
+            color: #333;
+            background-color: #f8f9fa;
+        }
+        
+        .container {
+            max-width: 1200px;
+            margin: 0 auto;
+            padding: 20px;
+        }
+        
+        .medical-disclaimer {
+            background: linear-gradient(135deg, #ff6b6b, #ee5a24);
+            color: white;
+            padding: 15px;
+            border-radius: 8px;
+            margin-bottom: 20px;
+            box-shadow: 0 4px 6px rgba(0,0,0,0.1);
+            border-left: 5px solid #c23616;
+        }
+        
+        .medical-disclaimer h3 {
+            margin-bottom: 10px;
+            display: flex;
+            align-items: center;
+            gap: 10px;
+        }
+        
+        .app-header {
+            text-align: center;
+            margin-bottom: 30px;
+            padding: 20px;
+            background: white;
+            border-radius: 10px;
+            box-shadow: 0 2px 10px rgba(0,0,0,0.1);
+        }
+        
+        .mode-selector {
+            display: flex;
+            gap: 10px;
+            margin-bottom: 20px;
+            justify-content: center;
+        }
+        
+        .mode-btn {
+            padding: 12px 24px;
+            border: none;
+            border-radius: 6px;
+            cursor: pointer;
+            font-weight: 600;
+            transition: all 0.3s ease;
+        }
+        
+        .mode-btn.active {
+            background-color: var(--secondary-color);
+            color: white;
+        }
+        
+        .mode-btn:not(.active) {
+            background-color: var(--light-bg);
+            color: var(--primary-color);
+        }
+        
+        .mode-content {
+            display: none;
+            background: white;
+            padding: 25px;
+            border-radius: 10px;
+            box-shadow: 0 2px 10px rgba(0,0,0,0.1);
+            margin-bottom: 20px;
+        }
+        
+        .mode-content.active {
+            display: block;
+        }
+        
+        .upload-area {
+            border: 2px dashed #bdc3c7;
+            border-radius: 8px;
+            padding: 40px 20px;
+            text-align: center;
+            margin-bottom: 20px;
+            transition: all 0.3s ease;
+            cursor: pointer;
+        }
+        
+        .upload-area.dragover {
+            border-color: var(--secondary-color);
+            background-color: rgba(52, 152, 219, 0.1);
+        }
+        
+        .image-preview {
+            display: grid;
+            grid-template-columns: repeat(auto-fill, minmax(150px, 1fr));
+            gap: 15px;
+            margin-bottom: 20px;
+        }
+        
+        .preview-item {
+            position: relative;
+            border-radius: 6px;
+            overflow: hidden;
+            box-shadow: 0 2px 5px rgba(0,0,0,0.1);
+        }
+        
+        .preview-item img {
+            width: 100%;
+            height: 120px;
+            object-fit: cover;
+        }
+        
+        .controls {
+            display: flex;
+            gap: 10px;
+            flex-wrap: wrap;
+            margin-bottom: 20px;
+        }
+        
+        .btn {
+            padding: 10px 20px;
+            border: none;
+            border-radius: 5px;
+            cursor: pointer;
+            font-weight: 600;
+            transition: all 0.3s ease;
+        }
+        
+        .btn-primary {
+            background-color: var(--secondary-color);
+            color: white;
+        }
+        
+        .btn-success {
+            background-color: var(--success-color);
+            color: white;
+        }
+        
+        .btn-danger {
+            background-color: var(--danger-color);
+            color: white;
+        }
+        
+        .results-container {
+            margin-top: 20px;
+        }
+        
+        .prediction-result {
+            padding: 15px;
+            border-radius: 6px;
+            margin-bottom: 10px;
+            background-color: var(--light-bg);
+        }
+        
+        .prediction-covid {
+            border-left: 4px solid var(--danger-color);
+        }
+        
+        .prediction-normal {
+            border-left: 4px solid var(--success-color);
+        }
+        
+        .confidence-bar {
+            height: 8px;
+            background-color: #bdc3c7;
+            border-radius: 4px;
+            margin: 10px 0;
+            overflow: hidden;
+        }
+        
+        .confidence-fill {
+            height: 100%;
+            transition: width 0.3s ease;
+        }
+        
+        .training-progress {
+            margin-bottom: 20px;
+        }
+        
+        .progress-bar {
+            height: 20px;
+            background-color: #ecf0f1;
+            border-radius: 10px;
+            overflow: hidden;
+            margin-bottom: 10px;
+        }
+        
+        .progress-fill {
+            height: 100%;
+            background: linear-gradient(90deg, var(--secondary-color), var(--success-color));
+            transition: width 0.3s ease;
+        }
+        
+        .metrics-grid {
+            display: grid;
+            grid-template-columns: repeat(auto-fit, minmax(200px, 1fr));
+            gap: 15px;
+            margin-bottom: 20px;
+        }
+        
+        .metric-card {
+            background: white;
+            padding: 15px;
+            border-radius: 6px;
+            text-align: center;
+            box-shadow: 0 2px 5px rgba(0,0,0,0.1);
+        }
+        
+        .metric-value {
+            font-size: 24px;
+            font-weight: bold;
+            margin: 10px 0;
+        }
+        
+        .loading {
+            display: none;
+            text-align: center;
+            padding: 20px;
+        }
+        
+        .spinner {
+            border: 4px solid #f3f3f3;
+            border-top: 4px solid var(--secondary-color);
+            border-radius: 50%;
+            width: 40px;
+            height: 40px;
+            animation: spin 1s linear infinite;
+            margin: 0 auto 10px;
+        }
+        
+        @keyframes spin {
+            0% { transform: rotate(0deg); }
+            100% { transform: rotate(360deg); }
+        }
+        
+        @media (max-width: 768px) {
+            .container {
+                padding: 10px;
+            }
+            
+            .mode-selector {
+                flex-direction: column;
+            }
+            
+            .controls {
+                flex-direction: column;
+            }
+            
+            .btn {
+                width: 100%;
+            }
+        }
+        
+        .feature-maps {
+            margin-top: 20px;
+        }
+        
+        .feature-map-container {
+            display: grid;
+            grid-template-columns: repeat(auto-fill, minmax(100px, 1fr));
+            gap: 10px;
+            margin-top: 10px;
+        }
+        
+        .feature-map {
+            border: 1px solid #ddd;
+            border-radius: 4px;
+            overflow: hidden;
+        }
+        
+        .feature-map img {
+            width: 100%;
+            height: auto;
+            display: block;
+        }
+    </style>
 </head>
 <body>
-  <header>
-    <h1>COVID-19 Chest X-ray Classifier</h1>
-    <p>Client-side educational demo using TensorFlow.js</p>
-  </header>
+    <div class="container">
+        <!-- Medical Disclaimer -->
+        <div class="medical-disclaimer">
+            <h3>⚠️ MEDICAL DISCLAIMER</h3>
+            <p><strong>FOR EDUCATIONAL AND RESEARCH PURPOSES ONLY</strong></p>
+            <p>This application is NOT for clinical diagnosis. Do not use for real medical decisions. 
+            Always consult qualified healthcare professionals for medical diagnosis.</p>
+        </div>
 
-  <main class="container">
-    <section class="mode-buttons">
-      <button id="train-mode-btn">Training Mode</button>
-      <button id="inference-mode-btn">Inference Mode</button>
-    </section>
+        <!-- App Header -->
+        <div class="app-header">
+            <h1>COVID-19 Chest X-ray Classifier</h1>
+            <p>Educational Tool for Medical Imaging AI Research</p>
+        </div>
 
-    <section id="upload-area" tabindex="0" aria-label="Upload X-ray images">
-      <p>Drag & Drop Chest X-ray images here or click to upload</p>
-      <input type="file" id="file-input" multiple accept="image/png,image/jpeg" hidden />
-      <div id="image-preview"></div>
-    </section>
+        <!-- Mode Selector -->
+        <div class="mode-selector">
+            <button class="mode-btn active" data-mode="inference">Inference Mode</button>
+            <button class="mode-btn" data-mode="training">Training Mode</button>
+        </div>
 
-    <section id="training-section" style="display:none;">
-      <h2>Training Mode</h2>
-      <label>Epochs: <input type="number" id="epochs" value="5" min="1" max="50"></label>
-      <label>Batch Size: <input type="number" id="batch-size" value="8" min="1" max="64"></label>
-      <label>Learning Rate: <input type="number" id="lr" value="0.001" step="0.0001"></label>
-      <button id="start-training">Start Training</button>
-      <div id="training-status"></div>
-      <div id="charts"></div>
-    </section>
+        <!-- Inference Mode -->
+        <div id="inference-mode" class="mode-content active">
+            <h2>Image Classification</h2>
+            <p>Upload chest X-ray images for COVID-19 detection</p>
+            
+            <div class="upload-area" id="inference-upload">
+                <p>📁 Drag & drop chest X-ray images here or click to browse</p>
+                <p><small>Supported formats: JPG, PNG (Max 10MB per image)</small></p>
+                <input type="file" id="inference-file-input" multiple accept=".jpg,.jpeg,.png" style="display: none;">
+            </div>
 
-    <section id="inference-section" style="display:none;">
-      <h2>Inference Mode</h2>
-      <button id="run-inference">Classify Images</button>
-      <div id="output"></div>
-    </section>
+            <div class="image-preview" id="inference-preview"></div>
 
-    <div class="disclaimer">
-      <strong>Disclaimer:</strong> This tool is for <u>educational and research</u> purposes only.
-      It is <u>not a medical device</u> and must not be used for clinical diagnosis or decision making.
-      All data are processed locally in your browser and not transmitted to any server.
+            <div class="controls">
+                <button class="btn btn-primary" id="classify-btn">Classify Images</button>
+                <button class="btn btn-danger" id="clear-inference-btn">Clear All</button>
+            </div>
+
+            <div class="loading" id="inference-loading">
+                <div class="spinner"></div>
+                <p>Processing images...</p>
+            </div>
+
+            <div class="results-container" id="inference-results"></div>
+        </div>
+
+        <!-- Training Mode -->
+        <div id="training-mode" class="mode-content">
+            <h2>Model Training (Educational)</h2>
+            <p>Train the COVID-19 classification model with your data</p>
+            
+            <div class="upload-area" id="training-upload">
+                <p>📁 Drag & drop training dataset here or click to browse</p>
+                <p><small>Organize images in folders: /covid and /normal</small></p>
+                <input type="file" id="training-file-input" webkitdirectory multiple accept=".jpg,.jpeg,.png" style="display: none;">
+            </div>
+
+            <div class="training-controls">
+                <h3>Training Parameters</h3>
+                <div class="controls">
+                    <label>Epochs: <input type="number" id="epochs" value="10" min="1" max="50"></label>
+                    <label>Batch Size: <input type="number" id="batch-size" value="8" min="1" max="32"></label>
+                    <label>Learning Rate: <input type="number" id="learning-rate" value="0.001" step="0.0001" min="0.0001" max="0.01"></label>
+                    <label>Test Split: <input type="number" id="test-split" value="0.2" step="0.05" min="0.1" max="0.5"></label>
+                </div>
+
+                <div class="controls">
+                    <button class="btn btn-success" id="train-btn">Start Training</button>
+                    <button class="btn btn-primary" id="load-pretrained-btn">Load Pretrained Model</button>
+                    <button class="btn btn-danger" id="clear-training-btn">Clear Data</button>
+                </div>
+            </div>
+
+            <div class="loading" id="training-loading">
+                <div class="spinner"></div>
+                <p>Training model...</p>
+            </div>
+
+            <div class="training-progress">
+                <div id="training-charts"></div>
+            </div>
+
+            <div class="metrics-grid" id="training-metrics"></div>
+        </div>
+
+        <!-- Model Performance -->
+        <div class="mode-content" id="performance-section">
+            <h2>Model Performance</h2>
+            <div id="confusion-matrix"></div>
+            <div id="roc-curve"></div>
+        </div>
     </div>
-  </main>
 
-  <script src="utils.js"></script>
-  <script src="data-loader.js"></script>
-  <script src="model.js"></script>
-  <script src="ui-controller.js"></script>
+    <script src="data-loader.js"></script>
+    <script src="model.js"></script>
+    <script src="ui-controller.js"></script>
 </body>
 </html>
