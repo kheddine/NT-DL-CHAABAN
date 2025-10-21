@@ -371,4 +371,61 @@ class RetailForecastApp {
                     <div class="metric-label">Final Val Loss</div>
                     <div class="metric-value">${this.model.trainingHistory?.history?.val_loss?.slice(-1)[0]?.toFixed(4) || 'N/A'}</div>
                 </div>
-            </div
+            </div>
+            <pre style="background: #f8f9fa; padding: 15px; border-radius: 6px; overflow-x: auto;">${this.model.getModelSummary()}</pre>
+        `;
+    }
+
+    exportResults() {
+        if (!this.predictions) {
+            this.showError('No predictions to export');
+            return;
+        }
+
+        const csvContent = this.convertToCSV(this.predictions);
+        const blob = new Blob([csvContent], { type: 'text/csv' });
+        const url = window.URL.createObjectURL(blob);
+        const a = document.createElement('a');
+        a.href = url;
+        a.download = `demand_forecasts_${this.currentProduct}_${new Date().toISOString().split('T')[0]}.csv`;
+        a.click();
+        window.URL.revokeObjectURL(url);
+        
+        this.log('Predictions exported successfully!', 'success');
+    }
+
+    convertToCSV(predictions) {
+        let csv = 'Day,Actual_Demand,Predicted_Demand,Absolute_Error,Error_Percent\n';
+        
+        const actual = predictions.actual[0];
+        const predicted = predictions.predicted[0];
+        
+        for (let day = 0; day < 7; day++) {
+            const error = Math.abs(actual[day] - predicted[day]);
+            const errorPercent = (error / actual[day]) * 100;
+            
+            csv += `Day ${day + 1},${actual[day].toFixed(4)},${predicted[day].toFixed(4)},${error.toFixed(4)},${errorPercent.toFixed(2)}%\n`;
+        }
+        
+        return csv;
+    }
+
+    log(message, type = 'info') {
+        const logContainer = document.getElementById('trainingLog');
+        const timestamp = new Date().toLocaleTimeString();
+        const colorClass = `log-${type}`;
+        
+        logContainer.innerHTML += `<div class="log-entry ${colorClass}">[${timestamp}] ${message}</div>`;
+        logContainer.scrollTop = logContainer.scrollHeight;
+    }
+
+    showError(message) {
+        this.log(message, 'error');
+        alert(`Error: ${message}`);
+    }
+}
+
+// Initialize app when DOM is loaded
+document.addEventListener('DOMContentLoaded', () => {
+    new RetailForecastApp();
+});
