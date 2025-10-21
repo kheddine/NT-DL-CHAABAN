@@ -1,186 +1,122 @@
-<!-- index.html -->
 <!DOCTYPE html>
 <html lang="en">
 <head>
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
     <title>Retail Demand Forecasting</title>
+    <link href="https://cdn.jsdelivr.net/npm/bootstrap@5.3.0/dist/css/bootstrap.min.css" rel="stylesheet">
+    <script src="https://cdn.jsdelivr.net/npm/papaparse@5.4.0/papaparse.min.js"></script>
     <script src="https://cdn.jsdelivr.net/npm/@tensorflow/tfjs@4.10.0/dist/tf.min.js"></script>
-    <script src="https://cdn.jsdelivr.net/npm/chart.js@4.3.0/dist/chart.min.js"></script>
-    <script src="https://cdn.jsdelivr.net/npm/papaparse@5.4.1/papaparse.min.js"></script>
-    <style>
-        body { font-family: Arial, sans-serif; margin: 20px; background: #f5f5f5; }
-        .container { max-width: 1200px; margin: 0 auto; }
-        .section { background: white; padding: 20px; margin: 10px 0; border-radius: 8px; box-shadow: 0 2px 4px rgba(0,0,0,0.1); }
-        button { padding: 10px 15px; margin: 5px; background: #007cba; color: white; border: none; border-radius: 4px; cursor: pointer; }
-        button:disabled { background: #ccc; cursor: not-allowed; }
-        .progress { width: 100%; height: 20px; background: #f0f0f0; border-radius: 10px; margin: 10px 0; }
-        .progress-bar { height: 100%; background: #007cba; border-radius: 10px; width: 0%; transition: width 0.3s; }
-        .log { background: #333; color: white; padding: 10px; border-radius: 4px; height: 200px; overflow-y: auto; font-family: monospace; font-size: 12px; }
-        .metric { display: inline-block; padding: 10px; margin: 5px; background: #e8f4fd; border-radius: 4px; }
-        .chart-container { width: 100%; height: 400px; margin: 20px 0; }
-    </style>
+    <script src="https://cdn.jsdelivr.net/npm/chart.js@4.3.0/dist/chart.umd.min.js"></script>
 </head>
 <body>
-    <div class="container">
-        <h1>Retail Demand Forecasting</h1>
+    <div class="container py-4">
+        <h1 class="text-center mb-4">🛍️ Retail Demand Forecasting</h1>
         
-        <div class="section">
-            <h2>1. Load Dataset</h2>
-            <input type="file" id="csvFile" accept=".csv">
-            <button id="loadData">Load & Preprocess Data</button>
-            <div id="dataInfo"></div>
+        <!-- Step 1: Data Loading -->
+        <div class="card mb-4">
+            <div class="card-header bg-primary text-white">
+                <h2 class="h5 mb-0">1. Load Dataset</h2>
+            </div>
+            <div class="card-body">
+                <input type="file" id="csvFile" class="form-control mb-3" accept=".csv">
+                <button id="loadData" class="btn btn-primary" disabled>Process Data</button>
+                <div id="dataInfo" class="mt-3"></div>
+            </div>
         </div>
 
-        <div class="section">
-            <h2>2. Model Training</h2>
-            <select id="productSelect"></select>
-            <button id="trainModel" disabled>Train Model</button>
-            <button id="loadModel" disabled>Load Model</button>
-            
-            <div class="progress">
-                <div class="progress-bar" id="trainingProgress"></div>
+        <!-- Step 2: Model Training -->
+        <div class="card mb-4">
+            <div class="card-header bg-success text-white">
+                <h2 class="h5 mb-0">2. Train GRU Model</h2>
             </div>
-            <div class="log" id="trainingLog"></div>
+            <div class="card-body">
+                <div class="row mb-3">
+                    <div class="col-md-3">
+                        <label for="epochs" class="form-label">Epochs</label>
+                        <input type="number" id="epochs" class="form-control" value="50" min="1">
+                    </div>
+                    <div class="col-md-3">
+                        <label for="batchSize" class="form-label">Batch Size</label>
+                        <input type="number" id="batchSize" class="form-control" value="32" min="1">
+                    </div>
+                    <div class="col-md-3">
+                        <label for="learningRate" class="form-label">Learning Rate</label>
+                        <input type="number" id="learningRate" class="form-control" value="0.001" step="0.0001">
+                    </div>
+                </div>
+                <button id="trainModel" class="btn btn-success" disabled>Train Model</button>
+                <div id="trainingProgress" class="mt-3"></div>
+            </div>
         </div>
 
-        <div class="section">
-            <h2>3. Results</h2>
-            <div id="metrics"></div>
-            <div class="chart-container">
-                <canvas id="forecastChart"></canvas>
+        <!-- Step 3: Results Dashboard -->
+        <div class="card">
+            <div class="card-header bg-info text-white">
+                <h2 class="h5 mb-0">3. Forecast Dashboard</h2>
             </div>
-            <div id="forecastTable"></div>
+            <div class="card-body">
+                <!-- Global Metrics -->
+                <div id="globalMetrics" class="row mb-4"></div>
+                
+                <!-- Product Selection -->
+                <div class="row mb-4">
+                    <div class="col-md-6">
+                        <label for="productSelect" class="form-label">Select Product</label>
+                        <select id="productSelect" class="form-select" disabled>
+                            <option value="">Select a product...</option>
+                        </select>
+                    </div>
+                </div>
+
+                <!-- Charts -->
+                <div class="row">
+                    <div class="col-lg-6 mb-4">
+                        <div class="card">
+                            <div class="card-header">Accuracy Ranking (MAPE % - Lower is Better)</div>
+                            <div class="card-body">
+                                <canvas id="accuracyChart"></canvas>
+                            </div>
+                        </div>
+                    </div>
+                    <div class="col-lg-6 mb-4">
+                        <div class="card">
+                            <div class="card-header">7-Day Forecast</div>
+                            <div class="card-body">
+                                <canvas id="forecastChart"></canvas>
+                            </div>
+                        </div>
+                    </div>
+                </div>
+
+                <!-- Forecast Table -->
+                <div class="card mb-4">
+                    <div class="card-header">Detailed Forecast</div>
+                    <div class="card-body">
+                        <div class="table-responsive">
+                            <table id="forecastTable" class="table table-striped">
+                                <thead>
+                                    <tr>
+                                        <th>Day</th>
+                                        <th>Actual</th>
+                                        <th>Predicted</th>
+                                        <th>Error</th>
+                                        <th>Error %</th>
+                                    </tr>
+                                </thead>
+                                <tbody></tbody>
+                            </table>
+                        </div>
+                    </div>
+                </div>
+
+                <button id="downloadResults" class="btn btn-outline-primary" disabled>Download Forecasts as CSV</button>
+            </div>
         </div>
     </div>
 
-    <script type="module">
-        import DataLoader from './data-loader.js';
-        import GRUModel from './gru.js';
-        
-        class App {
-            constructor() {
-                this.loader = new DataLoader();
-                this.model = new GRUModel();
-                this.init();
-            }
-            
-            init() {
-                document.getElementById('loadData').addEventListener('click', () => this.loadData());
-                document.getElementById('trainModel').addEventListener('click', () => this.trainModel());
-                document.getElementById('loadModel').addEventListener('click', () => this.loadModel());
-            }
-            
-            async loadData() {
-                const fileInput = document.getElementById('csvFile');
-                const file = fileInput.files[0];
-                if (!file) {
-                    this.log('Please select a CSV file');
-                    return;
-                }
-                
-                try {
-                    this.log('Loading CSV file...');
-                    const data = await this.loader.loadCSV(file);
-                    this.log(`Loaded ${data.length} rows`);
-                    
-                    this.log('Preprocessing data...');
-                    this.loader.preprocessData();
-                    
-                    const products = this.loader.getProducts();
-                    this.log(`Found ${products.length} products`);
-                    
-                    const select = document.getElementById('productSelect');
-                    select.innerHTML = '';
-                    products.forEach(product => {
-                        const option = document.createElement('option');
-                        option.value = product;
-                        option.textContent = `Product ${product}`;
-                        select.appendChild(option);
-                    });
-                    
-                    document.getElementById('trainModel').disabled = false;
-                    document.getElementById('loadModel').disabled = false;
-                    this.log('Data loaded successfully!');
-                    
-                } catch (error) {
-                    this.log(`Error: ${error.message}`, true);
-                }
-            }
-            
-            async trainModel() {
-                const productId = document.getElementById('productSelect').value;
-                if (!productId) {
-                    this.log('Please select a product');
-                    return;
-                }
-                
-                try {
-                    this.log(`Training model for product ${productId}...`);
-                    const productData = this.loader.prepareProductData(productId);
-                    const { X_train, X_test, y_train, y_test } = this.loader.splitData(
-                        productData.sequences, productData.labels
-                    );
-                    
-                    await this.model.createModel([X_train.shape[1], X_train.shape[2]]);
-                    
-                    await this.model.trainModel(X_train, y_train, X_test, y_test, 10, {
-                        onEpochEnd: (epoch, logs) => {
-                            const progress = ((epoch + 1) / 10) * 100;
-                            document.getElementById('trainingProgress').style.width = `${progress}%`;
-                            this.log(`Epoch ${epoch + 1}: loss=${logs.loss.toFixed(4)}`);
-                        }
-                    });
-                    
-                    this.log('Training completed!');
-                    this.evaluateModel(X_test, y_test);
-                    
-                } catch (error) {
-                    this.log(`Training error: ${error.message}`, true);
-                }
-            }
-            
-            async loadModel() {
-                try {
-                    this.log('Loading saved model...');
-                    const success = await this.model.loadModel();
-                    if (success) {
-                        this.log('Model loaded successfully!');
-                    } else {
-                        this.log('No saved model found');
-                    }
-                } catch (error) {
-                    this.log(`Load error: ${error.message}`, true);
-                }
-            }
-            
-            async evaluateModel(X_test, y_test) {
-                try {
-                    const predictions = await this.model.predict(X_test);
-                    const metrics = this.model.evaluateModel(y_test, predictions);
-                    
-                    let metricsHTML = '';
-                    for (const [key, value] of Object.entries(metrics)) {
-                        metricsHTML += `<div class="metric">${key}: ${value.toFixed(4)}</div>`;
-                    }
-                    document.getElementById('metrics').innerHTML = metricsHTML;
-                    
-                    this.log('Evaluation completed!');
-                    
-                } catch (error) {
-                    this.log(`Evaluation error: ${error.message}`, true);
-                }
-            }
-            
-            log(message, isError = false) {
-                const log = document.getElementById('trainingLog');
-                const color = isError ? 'color: red;' : 'color: white;';
-                log.innerHTML += `<div style="${color}">${new Date().toLocaleTimeString()}: ${message}</div>`;
-                log.scrollTop = log.scrollHeight;
-            }
-        }
-        
-        new App();
-    </script>
+    <script type="module" src="data-loader.js"></script>
+    <script type="module" src="gru.js"></script>
+    <script type="module" src="app.js"></script>
 </body>
 </html>
