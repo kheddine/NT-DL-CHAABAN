@@ -1,244 +1,412 @@
-// app.js
 import DataLoader from './data-loader.js';
 import GRUModel from './gru.js';
 
-class RetailForecastApp {
+class RetailForecastingApp {
     constructor() {
         this.dataLoader = new DataLoader();
         this.model = new GRUModel();
-        this.currentProduct = null;
-        this.currentData = null;
-        this.predictions = null;
-        this.metrics = null;
-        this.charts = {};
+        this.isDataLoaded = false;
+        this.isModelTrained = false;
+        this.predictions = {};
+        this.metrics = {};
         
         this.initializeEventListeners();
-        this.log('App initialized. Ready to load data.', 'success');
+        this.checkForSavedModel();
     }
 
     initializeEventListeners() {
-        document.getElementById('loadData').addEventListener('click', () => this.loadData());
-        document.getElementById('trainModel').addEventListener('click', () => this.trainModel());
-        document.getElementById('loadModel').addEventListener('click', () => this.loadSavedModel());
-        document.getElementById('exportResults').addEventListener('click', () => this.exportResults());
-        document.getElementById('productSelect').addEventListener('change', (e) => {
-            this.currentProduct = e.target.value;
+        // File upload
+        document.getElementById('csvFile').addEventListener('change', (e) => {
+            const file = e.target.files[0];
+            if (file) {
+                document.getElementById('loadData').disabled = false;
+            }
         });
+
+        // Data loading
+        document.getElementById('loadData').addEventListener('click', () => {
+            this.loadData();
+        });
+
+        // Model training
+        document.getElementById('trainModel').addEventListener('click', () => {
+            this.trainModel();
+        });
+
+        // Product selection
+        document.getElementById('productSelect').addEventListener('change', (e) => {
+            this.displayProductForecast(e.target.value);
+        });
+
+        // Download results
+        document.getElementById('downloadResults').addEventListener('click', () => {
+            this.downloadResults();
+        });
+
+        // Training progress updates
+        window.addEventListener('trainingProgress', (e) => {
+            this.updateTrainingProgress(e.detail);
+        });
+    }
+
+    async checkForSavedModel() {
+        const loaded = await this.model.loadModel();
+        if (loaded) {
+            this.isModelTrained = true;
+            document.getElementById('trainModel').disabled = true;
+            document.getElementById('trainModel').textContent = 'Model Loaded from Storage';
+            this.showNotification('Model loaded from browser storage', 'success');
+        }
     }
 
     async loadData() {
-        const fileInput = document.getElementById('csvFile');
-        if (!fileInput.files.length) {
-            this.showError('Please select a CSV file');
+        const file = document.getElementById('csvFile').files[0];
+        if (!file) {
+            this.showNotification('Please select a CSV file', 'error');
             return;
         }
 
         try {
-            this.log('Loading CSV file...', 'info');
-            await this.dataLoader.loadCSV(fileInput.files[0]);
+            this.showNotification('Loading CSV file...', 'info');
+            await this.dataLoader.loadCSV(file);
             
-            this.log('Preprocessing data...', 'info');
+            this.showNotification('Preprocessing data...', 'info');
             this.dataLoader.preprocessData();
             
-            this.log('Extracting products...', 'info');
-            this.populateProductSelect();
-            
-            this.log(`Data loaded successfully! Found ${this.dataLoader.getProducts().length} products.`, 'success');
+            this.isDataLoaded = true;
             document.getElementById('trainModel').disabled = false;
-            document.getElementById('loadModel').disabled = false;
+            
+            const productCount = this.dataLoader.getAllProducts().length;
+            document.getElementById('dataInfo').innerHTML = 
+                `<div class="alert alert-success">✅ Loaded ${productCount} products successfully</div>`;
+                
+            this.showNotification('Data loaded and processed successfully', 'success');
             
         } catch (error) {
-            this.showError(`Data loading failed: ${error.message}`);
+            this.showNotification(`Error loading data: ${error.message}`, 'error');
+            console.error(error);
         }
-    }
-
-    populateProductSelect() {
-        const select = document.getElementById('productSelect');
-        const products = this.dataLoader.getProducts();
-        
-        select.innerHTML = '';
-        products.forEach(productId => {
-            const option = document.createElement('option');
-            option.value = productId;
-            option.textContent = `Product ${productId}`;
-            select.appendChild(option);
-        });
-        
-        this.currentProduct = select.value;
     }
 
     async trainModel() {
-        if (!this.currentProduct) {
-            this.showError('Please select a product');
+        if (!this.isDataLoaded) {
+            this.showNotification('Please load data first', 'error');
             return;
         }
 
         try {
-            this.log(`Preparing data for product ${this.currentProduct}...`, 'info');
-            const productData = this.dataLoader.prepareProductData(this.currentProduct);
-            
-            this.log('Splitting data into train/test sets...', 'info');
-            const { X_train, X_test, y_train, y_test } = this.dataLoader.splitData(
-                productData.sequences, productData.labels
-            );
+            const epochs = parseInt(document.getElementById('epochs').value);
+            const batchSize = parseInt(document.getElementById('batchSize').value);
+            const learningRate = parseFloat(document.getElementById('learningRate').value);
 
-            this.log('Creating GRU model...', 'info');
-            const inputShape = [X_train.shape[1], X_train.shape[2]];
-            await this.model.createModel(inputShape);
-            
-            this.log(`Training model for 50 epochs...`, 'info');
             document.getElementById('trainModel').disabled = true;
+            document.getElementById('trainingProgress').innerHTML = 
+                '<div class="progress"><div class="progress-bar progress-bar-striped progress-bar-animated" style="width: 0%"></div></div>';
 
-            await this.model.trainModel(X_train, y_train, X_test, y_test, 50, {
-                onEpochEnd: (epoch, logs) => {
-                    const progress = ((epoch + 1) / 50) * 100;
-                    const progressBar = document.getElementById('trainingProgress');
-                    progressBar.style.width = `${progress}%`;
-                    progressBar.textContent = `${Math.round(progress)}%`;
-                    
-                    this.log(`Epoch ${epoch + 1}/50 - Loss: ${logs.loss.toFixed(4)}, Val Loss: ${logs.val_loss.toFixed(4)}`, 'info');
-                },
-                onTrainEnd: () => {
-                    document.getElementById('trainModel').disabled = false;
-                    this.evaluateModel(X_test, y_test, productData);
-                    this.model.saveModel();
-                    this.log('Model training completed successfully!', 'success');
-                }
-            });
-
-            // Clean up tensors
-            X_train.dispose();
-            X_test.dispose();
-            y_train.dispose();
-            y_test.dispose();
-
+            // Prepare data
+            const { trainData, testData } = this.dataLoader.prepareTrainTestSplit();
+            
+            // Create and train model
+            const inputShape = [30, this.calculateFeatureCount()];
+            this.model.createModel(inputShape, learningRate);
+            
+            await this.model.trainModel(trainData.sequences, trainData.targets, epochs, batchSize);
+            
+            // Make predictions and calculate metrics
+            await this.generatePredictionsAndMetrics(testData);
+            
+            // Save model
+            await this.model.saveModel();
+            
+            this.isModelTrained = true;
+            this.updateUIAfterTraining();
+            this.showNotification('Model training completed successfully', 'success');
+            
         } catch (error) {
-            this.showError(`Training failed: ${error.message}`);
+            this.showNotification(`Training failed: ${error.message}`, 'error');
+            console.error(error);
             document.getElementById('trainModel').disabled = false;
         }
     }
 
-    async loadSavedModel() {
-        try {
-            this.log('Loading saved model...', 'info');
-            const success = await this.model.loadModel();
-            
-            if (success) {
-                this.log('Model loaded successfully!', 'success');
-                if (this.currentProduct) {
-                    const productData = this.dataLoader.prepareProductData(this.currentProduct);
-                    const { X_test, y_test } = this.dataLoader.splitData(
-                        productData.sequences, productData.labels
-                    );
-                    this.evaluateModel(X_test, y_test, productData);
-                    X_test.dispose();
-                    y_test.dispose();
-                }
-            } else {
-                this.showError('No saved model found. Please train a model first.');
+    calculateFeatureCount() {
+        const featureInfo = this.dataLoader.getFeatureInfo();
+        return 1 + // Order_Demand
+               featureInfo.categories.Warehouse.length +
+               featureInfo.categories.Product_Category.length +
+               4 + // Open, Promo, StateHoliday, SchoolHoliday
+               1 + // Petrol_price
+               2;  // Day of week (sine/cosine)
+    }
+
+    updateTrainingProgress(progress) {
+        const progressBar = document.querySelector('#trainingProgress .progress-bar');
+        const percent = (progress.epoch / progress.totalEpochs) * 100;
+        
+        progressBar.style.width = `${percent}%`;
+        progressBar.textContent = `Epoch ${progress.epoch}/${progress.totalEpochs} - Loss: ${progress.loss?.toFixed(4)}`;
+    }
+
+    async generatePredictionsAndMetrics(testData) {
+        this.predictions = {};
+        this.metrics = {
+            global: { mae: 0, rmse: 0, mape: 0, directionalAccuracy: 0 },
+            products: {}
+        };
+
+        const predictions = await this.model.predict(testData.sequences);
+        const featureInfo = this.dataLoader.getFeatureInfo();
+
+        // Group predictions by product
+        testData.productMap.forEach((productId, index) => {
+            if (!this.predictions[productId]) {
+                this.predictions[productId] = [];
             }
-        } catch (error) {
-            this.showError(`Error loading model: ${error.message}`);
-        }
+            this.predictions[productId].push({
+                actual: testData.targets[index].map(val => 
+                    this.dataLoader.denormalizeValue(val, 'Order_Demand')
+                ),
+                predicted: predictions[index].map(val => 
+                    this.dataLoader.denormalizeValue(val, 'Order_Demand')
+                )
+            });
+        });
+
+        // Calculate metrics for each product
+        Object.keys(this.predictions).forEach(productId => {
+            const productMetrics = this.calculateProductMetrics(this.predictions[productId]);
+            this.metrics.products[productId] = productMetrics;
+        });
+
+        // Calculate global metrics
+        this.calculateGlobalMetrics();
     }
 
-    async evaluateModel(X_test, y_test, productData) {
-        try {
-            this.log('Generating predictions...', 'info');
-            const predictions = await this.model.predict(X_test);
-            
-            this.metrics = this.model.evaluateModel(y_test, predictions);
-            this.displayMetrics();
-            
-            const actualData = await y_test.array();
-            const predictedData = await predictions.array();
-            
-            this.createForecastChart(actualData, predictedData);
-            this.createAccuracyChart();
-            this.displayForecastTable(actualData, predictedData, productData);
-            this.displayModelSummary();
-            
-            this.predictions = { actual: actualData, predicted: predictedData };
-            document.getElementById('exportResults').disabled = false;
-            
-            predictions.dispose();
-            
-        } catch (error) {
-            this.showError(`Evaluation failed: ${error.message}`);
-        }
+    calculateProductMetrics(productPredictions) {
+        let totalMae = 0;
+        let totalMse = 0;
+        let totalMape = 0;
+        let totalDirectional = 0;
+        let totalPoints = 0;
+
+        productPredictions.forEach(prediction => {
+            for (let i = 0; i < 7; i++) {
+                const actual = prediction.actual[i];
+                const predicted = prediction.predicted[i];
+                const error = Math.abs(actual - predicted);
+                
+                totalMae += error;
+                totalMse += error * error;
+                
+                if (actual > 0) {
+                    totalMape += (error / actual) * 100;
+                }
+                
+                // Directional accuracy (compare with previous day in sequence)
+                if (i > 0) {
+                    const actualDir = Math.sign(actual - prediction.actual[i-1]);
+                    const predictedDir = Math.sign(predicted - prediction.predicted[i-1]);
+                    if (actualDir === predictedDir) totalDirectional++;
+                }
+                
+                totalPoints++;
+            }
+        });
+
+        return {
+            mae: totalMae / totalPoints,
+            rmse: Math.sqrt(totalMse / totalPoints),
+            mape: totalMape / totalPoints,
+            directionalAccuracy: (totalDirectional / (totalPoints - productPredictions.length)) * 100
+        };
     }
 
-    displayMetrics() {
-        const metricsDiv = document.getElementById('metrics');
-        metricsDiv.innerHTML = `
-            <div class="metric-card">
-                <div class="metric-label">Mean Absolute Error</div>
-                <div class="metric-value">${this.metrics.mae.toFixed(4)}</div>
+    calculateGlobalMetrics() {
+        const productMetrics = Object.values(this.metrics.products);
+        this.metrics.global = {
+            mae: productMetrics.reduce((sum, m) => sum + m.mae, 0) / productMetrics.length,
+            rmse: productMetrics.reduce((sum, m) => sum + m.rmse, 0) / productMetrics.length,
+            mape: productMetrics.reduce((sum, m) => sum + m.mape, 0) / productMetrics.length,
+            directionalAccuracy: productMetrics.reduce((sum, m) => sum + m.directionalAccuracy, 0) / productMetrics.length
+        };
+    }
+
+    updateUIAfterTraining() {
+        // Update global metrics
+        this.displayGlobalMetrics();
+        
+        // Populate product dropdown
+        this.populateProductDropdown();
+        
+        // Create accuracy chart
+        this.createAccuracyChart();
+        
+        // Enable download button
+        document.getElementById('downloadResults').disabled = false;
+    }
+
+    displayGlobalMetrics() {
+        const global = this.metrics.global;
+        document.getElementById('globalMetrics').innerHTML = `
+            <div class="col-md-3">
+                <div class="card text-white bg-primary">
+                    <div class="card-body">
+                        <h5 class="card-title">MAE</h5>
+                        <h2 class="card-text">${global.mae.toFixed(2)}</h2>
+                    </div>
+                </div>
             </div>
-            <div class="metric-card">
-                <div class="metric-label">Root Mean Square Error</div>
-                <div class="metric-value">${this.metrics.rmse.toFixed(4)}</div>
+            <div class="col-md-3">
+                <div class="card text-white bg-success">
+                    <div class="card-body">
+                        <h5 class="card-title">RMSE</h5>
+                        <h2 class="card-text">${global.rmse.toFixed(2)}</h2>
+                    </div>
+                </div>
             </div>
-            <div class="metric-card">
-                <div class="metric-label">Mean Absolute % Error</div>
-                <div class="metric-value">${this.metrics.mape.toFixed(2)}%</div>
+            <div class="col-md-3">
+                <div class="card text-white bg-warning">
+                    <div class="card-body">
+                        <h5 class="card-title">MAPE</h5>
+                        <h2 class="card-text">${global.mape.toFixed(1)}%</h2>
+                    </div>
+                </div>
             </div>
-            <div class="metric-card">
-                <div class="metric-label">Directional Accuracy</div>
-                <div class="metric-value">${this.metrics.directionalAccuracy.toFixed(2)}%</div>
+            <div class="col-md-3">
+                <div class="card text-white bg-info">
+                    <div class="card-body">
+                        <h5 class="card-title">Directional Acc</h5>
+                        <h2 class="card-text">${global.directionalAccuracy.toFixed(1)}%</h2>
+                    </div>
+                </div>
             </div>
         `;
     }
 
-    createForecastChart(actualData, predictedData) {
+    populateProductDropdown() {
+        const select = document.getElementById('productSelect');
+        select.disabled = false;
+        select.innerHTML = '<option value="">Select a product...</option>';
+        
+        // Sort products by MAPE (accuracy)
+        const sortedProducts = Object.keys(this.metrics.products).sort((a, b) => 
+            this.metrics.products[a].mape - this.metrics.products[b].mape
+        );
+        
+        sortedProducts.forEach(productId => {
+            const productData = this.dataLoader.getProductData(productId);
+            const mape = this.metrics.products[productId].mape;
+            const option = document.createElement('option');
+            option.value = productId;
+            option.textContent = `${productData.productInfo.code} (MAPE: ${mape.toFixed(1)}%)`;
+            select.appendChild(option);
+        });
+    }
+
+    createAccuracyChart() {
+        const ctx = document.getElementById('accuracyChart').getContext('2d');
+        
+        // Get top 20 products by accuracy (lowest MAPE)
+        const sortedProducts = Object.keys(this.metrics.products)
+            .sort((a, b) => this.metrics.products[a].mape - this.metrics.products[b].mape)
+            .slice(0, 20);
+        
+        const labels = sortedProducts.map(id => {
+            const data = this.dataLoader.getProductData(id);
+            return data.productInfo.code;
+        });
+        
+        const data = sortedProducts.map(id => this.metrics.products[id].mape);
+        
+        new Chart(ctx, {
+            type: 'bar',
+            data: {
+                labels: labels,
+                datasets: [{
+                    label: 'MAPE % (Lower is Better)',
+                    data: data,
+                    backgroundColor: 'rgba(54, 162, 235, 0.8)',
+                    borderColor: 'rgba(54, 162, 235, 1)',
+                    borderWidth: 1
+                }]
+            },
+            options: {
+                responsive: true,
+                scales: {
+                    y: {
+                        beginAtZero: true,
+                        title: {
+                            display: true,
+                            text: 'Mean Absolute Percentage Error (%)'
+                        }
+                    },
+                    x: {
+                        title: {
+                            display: true,
+                            text: 'Products'
+                        }
+                    }
+                }
+            }
+        });
+    }
+
+    displayProductForecast(productId) {
+        if (!productId) return;
+        
+        const productData = this.dataLoader.getProductData(productId);
+        const predictions = this.predictions[productId];
+        const metrics = this.metrics.products[productId];
+        
+        if (!predictions || predictions.length === 0) return;
+        
+        // Use the last prediction for display
+        const lastPrediction = predictions[predictions.length - 1];
+        
+        // Update forecast chart
+        this.updateForecastChart(lastPrediction, productData.productInfo.code);
+        
+        // Update forecast table
+        this.updateForecastTable(lastPrediction);
+    }
+
+    updateForecastChart(prediction, productCode) {
         const ctx = document.getElementById('forecastChart').getContext('2d');
         
-        if (this.charts.forecast) {
-            this.charts.forecast.destroy();
+        const days = ['Day 1', 'Day 2', 'Day 3', 'Day 4', 'Day 5', 'Day 6', 'Day 7'];
+        
+        // Destroy existing chart if it exists
+        if (this.forecastChartInstance) {
+            this.forecastChartInstance.destroy();
         }
-
-        // Use first sample for visualization
-        const sampleIndex = 0;
-        const actual = actualData[sampleIndex];
-        const predicted = predictedData[sampleIndex];
-
-        this.charts.forecast = new Chart(ctx, {
+        
+        this.forecastChartInstance = new Chart(ctx, {
             type: 'line',
             data: {
-                labels: Array.from({length: 7}, (_, i) => `Day ${i + 1}`),
+                labels: days,
                 datasets: [
                     {
                         label: 'Actual Demand',
-                        data: actual,
-                        borderColor: '#3498db',
-                        backgroundColor: 'rgba(52, 152, 219, 0.1)',
-                        borderWidth: 3,
-                        tension: 0.2,
-                        fill: true
+                        data: prediction.actual,
+                        borderColor: 'rgb(75, 192, 192)',
+                        backgroundColor: 'rgba(75, 192, 192, 0.2)',
+                        tension: 0.1
                     },
                     {
                         label: 'Predicted Demand',
-                        data: predicted,
-                        borderColor: '#e74c3c',
-                        backgroundColor: 'rgba(231, 76, 60, 0.1)',
-                        borderWidth: 3,
-                        borderDash: [5, 5],
-                        tension: 0.2,
-                        fill: true
+                        data: prediction.predicted,
+                        borderColor: 'rgb(255, 99, 132)',
+                        backgroundColor: 'rgba(255, 99, 132, 0.2)',
+                        tension: 0.1
                     }
                 ]
             },
             options: {
                 responsive: true,
-                maintainAspectRatio: false,
                 plugins: {
                     title: {
                         display: true,
-                        text: '7-Day Demand Forecast vs Actual',
-                        font: { size: 16 }
-                    },
-                    legend: {
-                        position: 'top',
+                        text: `7-Day Forecast - ${productCode}`
                     }
                 },
                 scales: {
@@ -246,13 +414,7 @@ class RetailForecastApp {
                         beginAtZero: true,
                         title: {
                             display: true,
-                            text: 'Normalized Demand'
-                        }
-                    },
-                    x: {
-                        title: {
-                            display: true,
-                            text: 'Forecast Days'
+                            text: 'Order Demand'
                         }
                     }
                 }
@@ -260,172 +422,83 @@ class RetailForecastApp {
         });
     }
 
-    createAccuracyChart() {
-        const ctx = document.getElementById('accuracyChart').getContext('2d');
+    updateForecastTable(prediction) {
+        const tbody = document.querySelector('#forecastTable tbody');
+        tbody.innerHTML = '';
         
-        if (this.charts.accuracy) {
-            this.charts.accuracy.destroy();
-        }
-
-        // Simulate accuracy data for multiple products (in real app, calculate for all products)
-        const products = this.dataLoader.getProducts().slice(0, 10);
-        const accuracies = products.map(() => Math.random() * 20 + 80); // 80-100% accuracy
-
-        this.charts.accuracy = new Chart(ctx, {
-            type: 'bar',
-            data: {
-                labels: products.map(p => `Product ${p}`),
-                datasets: [{
-                    label: 'Forecast Accuracy %',
-                    data: accuracies,
-                    backgroundColor: accuracies.map(acc => 
-                        acc >= 90 ? '#27ae60' : acc >= 80 ? '#f39c12' : '#e74c3c'
-                    ),
-                    borderColor: '#2c3e50',
-                    borderWidth: 1
-                }]
-            },
-            options: {
-                responsive: true,
-                maintainAspectRatio: false,
-                indexAxis: 'y',
-                plugins: {
-                    title: {
-                        display: true,
-                        text: 'Product Forecast Accuracy Ranking',
-                        font: { size: 16 }
-                    }
-                },
-                scales: {
-                    x: {
-                        beginAtZero: true,
-                        max: 100,
-                        title: {
-                            display: true,
-                            text: 'Accuracy (%)'
-                        }
-                    }
-                }
-            }
-        });
-    }
-
-    displayForecastTable(actualData, predictedData, productData) {
-        const tableDiv = document.getElementById('forecastTable');
-        const sampleIndex = 0;
-        const actual = actualData[sampleIndex];
-        const predicted = predictedData[sampleIndex];
-        
-        let tableHTML = `
-            <h3>Detailed Forecast Analysis</h3>
-            <table>
-                <thead>
-                    <tr>
-                        <th>Day</th>
-                        <th>Actual Demand</th>
-                        <th>Predicted Demand</th>
-                        <th>Absolute Error</th>
-                        <th>Error %</th>
-                    </tr>
-                </thead>
-                <tbody>
-        `;
-        
-        for (let day = 0; day < 7; day++) {
-            const error = Math.abs(actual[day] - predicted[day]);
-            const errorPercent = (error / actual[day]) * 100;
+        for (let i = 0; i < 7; i++) {
+            const actual = prediction.actual[i];
+            const predicted = prediction.predicted[i];
+            const error = actual - predicted;
+            const errorPercent = (Math.abs(error) / actual) * 100;
             
-            tableHTML += `
-                <tr>
-                    <td>Day ${day + 1}</td>
-                    <td>${actual[day].toFixed(4)}</td>
-                    <td>${predicted[day].toFixed(4)}</td>
-                    <td>${error.toFixed(4)}</td>
-                    <td class="${errorPercent > 20 ? 'error-rate' : 'good-rate'}">
-                        ${errorPercent.toFixed(2)}%
-                    </td>
-                </tr>
+            const row = document.createElement('tr');
+            row.innerHTML = `
+                <td>Day ${i + 1}</td>
+                <td>${actual.toFixed(2)}</td>
+                <td>${predicted.toFixed(2)}</td>
+                <td class="${error >= 0 ? 'text-success' : 'text-danger'}">${error.toFixed(2)}</td>
+                <td class="${errorPercent < 10 ? 'text-success' : errorPercent < 20 ? 'text-warning' : 'text-danger'}">${errorPercent.toFixed(1)}%</td>
             `;
+            tbody.appendChild(row);
         }
-        
-        tableHTML += `</tbody></table>`;
-        tableDiv.innerHTML = tableHTML;
     }
 
-    displayModelSummary() {
-        const summaryDiv = document.getElementById('modelSummary');
-        const trainingTime = this.model.getTrainingTime();
+    downloadResults() {
+        let csvContent = 'Product_Code,Product_ID,Day,Actual,Predicted,Error,Error_Percent\n';
         
-        summaryDiv.innerHTML = `
-            <h3>Model Training Summary</h3>
-            <div class="metrics-grid">
-                <div class="metric-card">
-                    <div class="metric-label">Training Time</div>
-                    <div class="metric-value">${(trainingTime / 1000).toFixed(1)}s</div>
-                </div>
-                <div class="metric-card">
-                    <div class="metric-label">Final Loss</div>
-                    <div class="metric-value">${this.model.trainingHistory?.history?.loss?.slice(-1)[0]?.toFixed(4) || 'N/A'}</div>
-                </div>
-                <div class="metric-card">
-                    <div class="metric-label">Final Val Loss</div>
-                    <div class="metric-value">${this.model.trainingHistory?.history?.val_loss?.slice(-1)[0]?.toFixed(4) || 'N/A'}</div>
-                </div>
-            </div>
-            <pre style="background: #f8f9fa; padding: 15px; border-radius: 6px; overflow-x: auto;">${this.model.getModelSummary()}</pre>
-        `;
-    }
-
-    exportResults() {
-        if (!this.predictions) {
-            this.showError('No predictions to export');
-            return;
-        }
-
-        const csvContent = this.convertToCSV(this.predictions);
+        Object.keys(this.predictions).forEach(productId => {
+            const productData = this.dataLoader.getProductData(productId);
+            const predictions = this.predictions[productId];
+            
+            // Use last prediction for each product
+            const lastPrediction = predictions[predictions.length - 1];
+            
+            for (let i = 0; i < 7; i++) {
+                const actual = lastPrediction.actual[i];
+                const predicted = lastPrediction.predicted[i];
+                const error = actual - predicted;
+                const errorPercent = (Math.abs(error) / actual) * 100;
+                
+                csvContent += `"${productData.productInfo.code}","${productId}",${i + 1},${actual.toFixed(2)},${predicted.toFixed(2)},${error.toFixed(2)},${errorPercent.toFixed(2)}\n`;
+            }
+        });
+        
         const blob = new Blob([csvContent], { type: 'text/csv' });
         const url = window.URL.createObjectURL(blob);
         const a = document.createElement('a');
         a.href = url;
-        a.download = `demand_forecasts_${this.currentProduct}_${new Date().toISOString().split('T')[0]}.csv`;
+        a.download = 'retail_forecasts.csv';
         a.click();
         window.URL.revokeObjectURL(url);
-        
-        this.log('Predictions exported successfully!', 'success');
     }
 
-    convertToCSV(predictions) {
-        let csv = 'Day,Actual_Demand,Predicted_Demand,Absolute_Error,Error_Percent\n';
+    showNotification(message, type = 'info') {
+        // Simple notification implementation
+        const alertClass = type === 'error' ? 'alert-danger' : 
+                          type === 'success' ? 'alert-success' : 'alert-info';
         
-        const actual = predictions.actual[0];
-        const predicted = predictions.predicted[0];
+        const notification = document.createElement('div');
+        notification.className = `alert ${alertClass} alert-dismissible fade show`;
+        notification.innerHTML = `
+            ${message}
+            <button type="button" class="btn-close" data-bs-dismiss="alert"></button>
+        `;
         
-        for (let day = 0; day < 7; day++) {
-            const error = Math.abs(actual[day] - predicted[day]);
-            const errorPercent = (error / actual[day]) * 100;
-            
-            csv += `Day ${day + 1},${actual[day].toFixed(4)},${predicted[day].toFixed(4)},${error.toFixed(4)},${errorPercent.toFixed(2)}%\n`;
-        }
+        // Add to top of container
+        const container = document.querySelector('.container');
+        container.insertBefore(notification, container.firstChild);
         
-        return csv;
-    }
-
-    log(message, type = 'info') {
-        const logContainer = document.getElementById('trainingLog');
-        const timestamp = new Date().toLocaleTimeString();
-        const colorClass = `log-${type}`;
-        
-        logContainer.innerHTML += `<div class="log-entry ${colorClass}">[${timestamp}] ${message}</div>`;
-        logContainer.scrollTop = logContainer.scrollHeight;
-    }
-
-    showError(message) {
-        this.log(message, 'error');
-        alert(`Error: ${message}`);
+        // Auto-remove after 5 seconds
+        setTimeout(() => {
+            if (notification.parentNode) {
+                notification.remove();
+            }
+        }, 5000);
     }
 }
 
 // Initialize app when DOM is loaded
 document.addEventListener('DOMContentLoaded', () => {
-    new RetailForecastApp();
+    new RetailForecastingApp();
 });
