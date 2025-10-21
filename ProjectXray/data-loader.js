@@ -20,12 +20,19 @@ class DataLoader {
                         reject(new Error(`CSV parsing errors: ${results.errors.map(e => e.message).join(', ')}`));
                         return;
                     }
+                    // Filter valid rows
                     this.rawData = results.data.filter(row => 
                         row.Product_id && 
                         row.Date && 
                         !isNaN(row.Order_Demand) &&
                         row.Order_Demand > 0
                     );
+                    
+                    if (this.rawData.length === 0) {
+                        reject(new Error('No valid data found in CSV'));
+                        return;
+                    }
+                    
                     resolve(this.rawData);
                 },
                 error: (error) => reject(error)
@@ -34,6 +41,8 @@ class DataLoader {
     }
 
     preprocessData() {
+        console.log('Preprocessing data...');
+        
         // Group by product
         const products = {};
         this.rawData.forEach(row => {
@@ -52,31 +61,27 @@ class DataLoader {
             this.processProductData(productId, products[productId]);
         });
 
+        // Remove products with insufficient data
+        Object.keys(this.processedData).forEach(productId => {
+            if (this.processedData[productId].sequences.length === 0) {
+                delete this.processedData[productId];
+            }
+        });
+
+        console.log(`Processed ${Object.keys(this.processedData).length} products`);
         return this.processedData;
     }
 
     processProductData(productId, productData) {
-        if (productData.length < 37) return; // Need at least 37 days for 30-day input + 7-day output
+        if (productData.length < 37) return; // Need at least 37 days
 
-        // Extract and normalize features
+        // Initialize feature info if not exists
+        if (Object.keys(this.featureInfo.min).length === 0) {
+            this.initializeFeatureInfo();
+        }
+
         const sequences = [];
         const targets = [];
-        
-        // Collect all values for normalization
-        const allDemands = productData.map(d => d.Order_Demand);
-        const allPetrol = productData.map(d => d.Petrol_price || 0);
-        
-        // Initialize feature info if not exists
-        if (!this.featureInfo.min.Order_Demand) {
-            this.featureInfo.min.Order_Demand = Math.min(...allDemands);
-            this.featureInfo.max.Order_Demand = Math.max(...allDemands);
-            this.featureInfo.min.Petrol_price = Math.min(...allPetrol);
-            this.featureInfo.max.Petrol_price = Math.max(...allPetrol);
-            
-            // Collect categories
-            this.featureInfo.categories.Warehouse = [...new Set(this.rawData.map(d => d.Warehouse))];
-            this.featureInfo.categories.Product_Category = [...new Set(this.rawData.map(d => d.Product_Category))];
-        }
 
         // Create sequences
         for (let i = 0; i <= productData.length - 37; i++) {
@@ -103,13 +108,29 @@ class DataLoader {
                 sequences: sequences,
                 targets: targets,
                 productInfo: {
-                    code: productData[0].Product_Code,
-                    category: productData[0].Product_Category,
-                    warehouse: productData[0].Warehouse
+                    code: productData[0].Product_Code || productId,
+                    category: productData[0].Product_Category || 'Unknown',
+                    warehouse: productData[0].Warehouse || 'Unknown'
                 },
                 dates: productData.map(d => d.Date)
             };
         }
+    }
+
+    initializeFeatureInfo() {
+        const allDemands = this.rawData.map(d => d.Order_Demand).filter(d => !isNaN(d));
+        const allPetrol = this.rawData.map(d => d.Petrol_price || 0).filter(p => !isNaN(p));
+        
+        this.featureInfo.min.Order_Demand = Math.min(...allDemands);
+        this.featureInfo.max.Order_Demand = Math.max(...allDemands);
+        this.featureInfo.min.Petrol_price = Math.min(...allPetrol);
+        this.featureInfo.max.Petrol_price = Math.max(...allPetrol);
+        
+        // Collect categories
+        this.featureInfo.categories.Warehouse = [...new Set(this.rawData.map(d => d.Warehouse).filter(Boolean))];
+        this.featureInfo.categories.Product_Category = [...new Set(this.rawData.map(d => d.Product_Category).filter(Boolean))];
+        
+        console.log('Feature info initialized:', this.featureInfo);
     }
 
     extractFeatures(row) {
@@ -130,17 +151,18 @@ class DataLoader {
         if (categoryIndex !== -1) categoryEncoding[categoryIndex] = 1;
         features.push(...categoryEncoding);
         
-        // Binary features
-        features.push(row.Open || 0);
-        features.push(row.Promo || 0);
-        features.push(row.StateHoliday || 0);
-        features.push(row.SchoolHoliday || 0);
+        // Binary features with defaults
+        features.push(row.Open ? 1 : 0);
+        features.push(row.Promo ? 1 : 0);
+        features.push(row.StateHoliday ? 1 : 0);
+        features.push(row.SchoolHoliday ? 1 : 0);
         
         // Normalized Petrol Price
         features.push(this.normalizeValue(row.Petrol_price || 0, 'Petrol_price'));
         
         // Day of week (sine/cosine encoding)
-        const dayOfWeek = new Date(row.Date).getDay();
+        const date = new Date(row.Date);
+        const dayOfWeek = date.getDay();
         features.push(Math.sin(2 * Math.PI * dayOfWeek / 7));
         features.push(Math.cos(2 * Math.PI * dayOfWeek / 7));
         
@@ -150,6 +172,7 @@ class DataLoader {
     normalizeValue(value, featureName) {
         const min = this.featureInfo.min[featureName];
         const max = this.featureInfo.max[featureName];
+        if (max === min) return 0.5; // Avoid division by zero
         return (value - min) / (max - min);
     }
 
@@ -173,6 +196,10 @@ class DataLoader {
             }
         });
 
+        if (allSequences.length === 0) {
+            throw new Error('No sequences available for training');
+        }
+
         // Split chronologically
         const splitIndex = Math.floor(allSequences.length * (1 - testRatio));
         
@@ -188,6 +215,7 @@ class DataLoader {
             productMap: productMap.slice(splitIndex)
         };
 
+        console.log(`Training sequences: ${trainData.sequences.length}, Test sequences: ${testData.sequences.length}`);
         return { trainData, testData };
     }
 
@@ -202,6 +230,13 @@ class DataLoader {
     getFeatureInfo() {
         return this.featureInfo;
     }
-}
 
-export default DataLoader;
+    getFeatureCount() {
+        return 1 + // Order_Demand
+               this.featureInfo.categories.Warehouse.length +
+               this.featureInfo.categories.Product_Category.length +
+               4 + // Binary features
+               1 + // Petrol_price
+               2;  // Day of week
+    }
+}
