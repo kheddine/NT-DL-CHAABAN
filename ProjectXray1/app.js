@@ -5,20 +5,99 @@ let model = null;
 let trainingHistory = [];
 let isTraining = false;
 
-// DOM elements
-const dataStatusEl = document.getElementById('data-status');
-const trainingProgressEl = document.getElementById('training-progress');
-const trainingChartsEl = document.getElementById('training-charts');
-const modelSummaryEl = document.getElementById('model-summary');
-const testImagePreviewEl = document.getElementById('test-image-preview');
-const predictionResultEl = document.getElementById('prediction-result');
-const samplePredictionsEl = document.getElementById('sample-predictions');
+// DOM elements - wait for DOM to be ready
+let dataStatusEl, trainingProgressEl, trainingChartsEl, modelSummaryEl, testImagePreviewEl, predictionResultEl, samplePredictionsEl;
+
+/**
+ * Initialize DOM elements after page loads
+ */
+function initializeDOMElements() {
+    dataStatusEl = document.getElementById('data-status');
+    trainingProgressEl = document.getElementById('training-progress');
+    trainingChartsEl = document.getElementById('training-charts');
+    modelSummaryEl = document.getElementById('model-summary');
+    testImagePreviewEl = document.getElementById('test-image-preview');
+    predictionResultEl = document.getElementById('prediction-result');
+    samplePredictionsEl = document.getElementById('sample-predictions');
+}
+
+/**
+ * Update the model summary display - DEFINED FIRST TO AVOID ISSUES
+ */
+function updateModelSummary() {
+    console.log('updateModelSummary called'); // Debug log
+    if (!model) {
+        if (modelSummaryEl) {
+            modelSummaryEl.textContent = 'No model loaded. Train a new model or load an existing one.';
+        }
+        return;
+    }
+    
+    try {
+        let summary = 'Model Architecture:\n\n';
+        let totalParams = 0;
+        let trainableParams = 0;
+        
+        model.layers.forEach((layer, i) => {
+            const layerType = layer.getClassName();
+            const outputShape = JSON.stringify(layer.outputShape).slice(1, -1);
+            const params = layer.countParams();
+            
+            totalParams += params;
+            if (layer.trainable) {
+                trainableParams += params;
+            }
+            
+            summary += `${(i + 1).toString().padStart(2, ' ')}) ${layerType.padEnd(15)} ${outputShape.padEnd(20)} ${params.toString().padStart(8)} params\n`;
+        });
+        
+        summary += `\nTotal params: ${totalParams.toLocaleString()}\n`;
+        summary += `Trainable params: ${trainableParams.toLocaleString()}\n`;
+        summary += `Non-trainable params: ${(totalParams - trainableParams).toLocaleString()}`;
+        
+        if (modelSummaryEl) {
+            modelSummaryEl.textContent = summary;
+        }
+        
+    } catch (error) {
+        console.error('Error generating model summary:', error);
+        if (modelSummaryEl) {
+            modelSummaryEl.textContent = 'Error generating model summary';
+        }
+    }
+}
+
+/**
+ * Initialize model summary with basic information
+ */
+function initializeModelSummary() {
+    console.log('initializeModelSummary called'); // Debug log
+    const summary = `Model Architecture (when created):
+
+ 1) conv2d          126, 126, 16      448 params
+ 2) max_pooling2d   63, 63, 16          0 params
+ 3) conv2d          61, 61, 32       4640 params
+ 4) max_pooling2d   30, 30, 32          0 params
+ 5) flatten         28800                0 params
+ 6) dense           64             1843264 params
+ 7) dropout         64                  0 params
+ 8) dense           1                   65 params
+
+Total params: 1,848,417
+Trainable params: 1,848,417
+Non-trainable params: 0`;
+    
+    if (modelSummaryEl) {
+        modelSummaryEl.textContent = summary;
+    }
+}
 
 /**
  * Initialize the application when DOM is loaded
  */
 document.addEventListener('DOMContentLoaded', function() {
     console.log('COVID-19 X-ray Classifier initialized');
+    initializeDOMElements();
     initializeModelSummary();
 });
 
@@ -26,6 +105,7 @@ document.addEventListener('DOMContentLoaded', function() {
  * Load and preprocess training data from uploaded files
  */
 async function onLoadData() {
+    console.log('onLoadData called'); // Debug log
     const pneumoniaFiles = document.getElementById('pneumonia-files').files;
     const normalFiles = document.getElementById('normal-files').files;
 
@@ -36,11 +116,12 @@ async function onLoadData() {
 
     try {
         // Show loading state
-        dataStatusEl.className = 'status-panel';
         dataStatusEl.innerHTML = 'Loading and preprocessing X-ray images...';
         
         // Clear previous data
-        disposeData();
+        if (typeof disposeData === 'function') {
+            disposeData();
+        }
         
         // Show immediate feedback
         await tf.nextFrame();
@@ -72,7 +153,6 @@ async function onLoadData() {
         
     } catch (error) {
         console.error('Error loading training data:', error);
-        dataStatusEl.className = 'status-panel';
         dataStatusEl.innerHTML = `<strong>Error loading data:</strong> ${error.message}`;
     }
 }
@@ -81,6 +161,8 @@ async function onLoadData() {
  * Show sample training images in the UI
  */
 function showSampleTrainingImages() {
+    if (!samplePredictionsEl) return;
+    
     samplePredictionsEl.innerHTML = '<h4>Sample Training Images:</h4>';
     
     tf.tidy(() => {
@@ -131,6 +213,7 @@ function createImagePreview(tensor, label, isPneumonia) {
  * Create and train the CNN model
  */
 async function onTrain() {
+    console.log('onTrain called'); // Debug log
     if (!trainingData.xs) {
         alert('Please load training data first');
         return;
@@ -210,7 +293,8 @@ async function onTrain() {
         
         console.log(`Training completed in ${trainingTime}s. Final accuracy: ${(finalAcc * 100).toFixed(1)}%`);
         
-        // Update model summary
+        // Update model summary - THIS SHOULD WORK NOW
+        console.log('Calling updateModelSummary...');
         updateModelSummary();
         
         // Clean up tensors
@@ -231,6 +315,7 @@ async function onTrain() {
  * Create the CNN model architecture for X-ray classification
  */
 function createModel() {
+    console.log('createModel called'); // Debug log
     // Clean up previous model if exists
     if (model) {
         model.dispose();
@@ -391,71 +476,16 @@ async function onLoadModel(event) {
     event.target.value = '';
 }
 
-/**
- * Update the model summary display
- */
-function updateModelSummary() {
-    if (!model) {
-        modelSummaryEl.textContent = 'No model loaded. Train a new model or load an existing one.';
-        return;
-    }
-    
-    try {
-        let summary = 'Model Architecture:\n\n';
-        let totalParams = 0;
-        let trainableParams = 0;
-        
-        model.layers.forEach((layer, i) => {
-            const layerType = layer.getClassName();
-            const outputShape = JSON.stringify(layer.outputShape).slice(1, -1);
-            const params = layer.countParams();
-            
-            totalParams += params;
-            if (layer.trainable) {
-                trainableParams += params;
-            }
-            
-            summary += `${(i + 1).toString().padStart(2, ' ')}) ${layerType.padEnd(15)} ${outputShape.padEnd(20)} ${params.toString().padStart(8)} params\n`;
-        });
-        
-        summary += `\nTotal params: ${totalParams.toLocaleString()}\n`;
-        summary += `Trainable params: ${trainableParams.toLocaleString()}\n`;
-        summary += `Non-trainable params: ${(totalParams - trainableParams).toLocaleString()}`;
-        
-        modelSummaryEl.textContent = summary;
-        
-    } catch (error) {
-        console.error('Error generating model summary:', error);
-        modelSummaryEl.textContent = 'Error generating model summary';
-    }
-}
-
-/**
- * Initialize model summary with basic information
- */
-function initializeModelSummary() {
-    const summary = `Model Architecture (when created):
-
- 1) conv2d          126, 126, 16      448 params
- 2) max_pooling2d   63, 63, 16          0 params
- 3) conv2d          61, 61, 32       4640 params
- 4) max_pooling2d   30, 30, 32          0 params
- 5) flatten         28800                0 params
- 6) dense           64             1843264 params
- 7) dropout         64                  0 params
- 8) dense           1                   65 params
-
-Total params: 1,848,417
-Trainable params: 1,848,417
-Non-trainable params: 0`;
-    
-    modelSummaryEl.textContent = summary;
-}
-
 // Handle page unload to clean up memory
 window.addEventListener('beforeunload', () => {
     if (model) {
         model.dispose();
     }
-    disposeData();
+    if (typeof disposeData === 'function') {
+        disposeData();
+    }
 });
+
+// Debug: Check if functions are available
+console.log('updateModelSummary defined:', typeof updateModelSummary);
+console.log('initializeModelSummary defined:', typeof initializeModelSummary);
