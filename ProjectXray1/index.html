@@ -12,63 +12,44 @@
             box-sizing: border-box;
             margin: 0;
             padding: 0;
-            font-family: 'Segoe UI', Tahoma, Geneva, Verdana, sans-serif;
+            font-family: Arial, sans-serif;
         }
         
         body {
             padding: 20px;
-            background: linear-gradient(135deg, #667eea 0%, #764ba2 100%);
-            min-height: 100vh;
+            background-color: #f5f5f5;
         }
         
         .container {
             display: grid;
             grid-template-columns: 1fr 1fr;
             gap: 20px;
-            max-width: 1400px;
+            max-width: 1200px;
             margin: 0 auto;
         }
         
-        @media (max-width: 1024px) {
+        @media (max-width: 768px) {
             .container {
                 grid-template-columns: 1fr;
             }
         }
         
         .column {
-            background: rgba(255, 255, 255, 0.95);
-            padding: 25px;
-            border-radius: 15px;
-            box-shadow: 0 8px 32px rgba(0, 0, 0, 0.1);
-            backdrop-filter: blur(10px);
+            background: white;
+            padding: 20px;
+            border-radius: 8px;
+            box-shadow: 0 2px 10px rgba(0,0,0,0.1);
         }
         
-        h1 {
-            text-align: center;
-            color: white;
-            margin-bottom: 20px;
-            font-size: 2.5em;
-            text-shadow: 2px 2px 4px rgba(0, 0, 0, 0.3);
-        }
-        
-        h2 {
+        h1, h2, h3 {
             color: #333;
-            margin-bottom: 20px;
-            border-bottom: 2px solid #667eea;
-            padding-bottom: 10px;
-        }
-        
-        h3 {
-            color: #555;
-            margin: 15px 0 10px 0;
+            margin-bottom: 15px;
         }
         
         .section {
             margin-bottom: 25px;
-            padding: 20px;
-            background: white;
-            border-radius: 10px;
-            box-shadow: 0 4px 15px rgba(0, 0, 0, 0.05);
+            padding-bottom: 20px;
+            border-bottom: 1px solid #eee;
         }
         
         .file-input-group {
@@ -84,96 +65,43 @@
         
         input[type="file"] {
             width: 100%;
-            padding: 12px;
-            border: 2px dashed #667eea;
-            border-radius: 8px;
-            background: #f8f9ff;
+            padding: 8px;
+            border: 1px solid #ddd;
+            border-radius: 4px;
             margin-bottom: 10px;
-            transition: all 0.3s ease;
-        }
-        
-        input[type="file"]:hover {
-            border-color: #764ba2;
-            background: #f0f2ff;
-        }
-        
-        .button-group {
-            display: flex;
-            flex-wrap: wrap;
-            gap: 10px;
-            margin: 15px 0;
         }
         
         button {
-            background: linear-gradient(135deg, #667eea, #764ba2);
+            background-color: #4CAF50;
             color: white;
-            padding: 12px 20px;
+            padding: 10px 15px;
             border: none;
-            border-radius: 8px;
+            border-radius: 4px;
             cursor: pointer;
+            margin: 5px 5px 5px 0;
             font-size: 14px;
-            font-weight: 600;
-            transition: all 0.3s ease;
-            flex: 1;
-            min-width: 120px;
         }
         
         button:hover {
-            transform: translateY(-2px);
-            box-shadow: 0 6px 20px rgba(102, 126, 234, 0.4);
+            background-color: #45a049;
         }
         
         button:disabled {
-            background: #cccccc;
+            background-color: #cccccc;
             cursor: not-allowed;
-            transform: none;
-            box-shadow: none;
-        }
-        
-        button.success {
-            background: linear-gradient(135deg, #28a745, #20c997);
-        }
-        
-        button.warning {
-            background: linear-gradient(135deg, #ffc107, #fd7e14);
-        }
-        
-        button.danger {
-            background: linear-gradient(135deg, #dc3545, #c82333);
         }
         
         .status-panel {
-            background: linear-gradient(135deg, #f8f9fa, #e9ecef);
-            padding: 20px;
-            border-radius: 10px;
-            border-left: 4px solid #667eea;
-            margin: 15px 0;
+            background-color: #f8f9fa;
+            padding: 15px;
+            border-radius: 4px;
+            margin: 10px 0;
             font-size: 14px;
-            line-height: 1.6;
-        }
-        
-        .status-panel.success {
-            border-left-color: #28a745;
-            background: linear-gradient(135deg, #d4edda, #c3e6cb);
-        }
-        
-        .status-panel.warning {
-            border-left-color: #ffc107;
-            background: linear-gradient(135deg, #fff3cd, #ffeaa7);
-        }
-        
-        .status-panel.error {
-            border-left-color: #dc3545;
-            background: linear-gradient(135deg, #f8d7da, #f5c6cb);
         }
         
         #training-charts {
             margin: 20px 0;
             min-height: 300px;
-            background: white;
-            border-radius: 10px;
-            padding: 15px;
-            border: 1px solid #e9ecef;
         }
         
         .preview-container {
@@ -189,17 +117,12 @@
             background: white;
             padding: 15px;
             border-radius: 10px;
-            box-shadow: 0 4px 15px rgba(0, 0, 0, 0.1);
-            transition: transform 0.3s ease;
-        }
-        
-        .preview-item:hover {
-            transform: translateY(-5px);
+            box-shadow: 0 2px 5px rgba(0,0,0,0.1);
         }
         
         .preview-canvas {
-            border: 2px solid #e9ecef;
-            border-radius: 8px;
+            border: 1px solid #ddd;
+            border-radius: 4px;
             margin-bottom: 10px;
             max-width: 150px;
             max-height: 150px;
@@ -207,88 +130,39 @@
         
         .prediction-label {
             font-weight: bold;
-            font-size: 16px;
+            font-size: 14px;
             padding: 5px 10px;
-            border-radius: 5px;
+            border-radius: 4px;
         }
         
         .pneumonia {
-            background-color: #f8d7da;
-            color: #721c24;
+            background-color: #ffebee;
+            color: #c62828;
         }
         
         .normal {
-            background-color: #d4edda;
-            color: #155724;
+            background-color: #e8f5e8;
+            color: #2e7d32;
         }
         
         .model-summary {
-            font-family: 'Courier New', monospace;
+            font-family: monospace;
             font-size: 12px;
-            background: #1e1e1e;
-            color: #d4d4d4;
-            padding: 15px;
-            border-radius: 8px;
+            background-color: #f5f5f5;
+            padding: 10px;
+            border-radius: 4px;
             overflow-x: auto;
             white-space: pre;
-            line-height: 1.4;
         }
         
-        .metrics-grid {
-            display: grid;
-            grid-template-columns: repeat(auto-fit, minmax(200px, 1fr));
-            gap: 15px;
-            margin: 20px 0;
-        }
-        
-        .metric-card {
-            background: linear-gradient(135deg, #667eea, #764ba2);
-            color: white;
-            padding: 20px;
-            border-radius: 10px;
-            text-align: center;
-        }
-        
-        .metric-value {
-            font-size: 2em;
-            font-weight: bold;
-            margin: 10px 0;
-        }
-        
-        .metric-label {
-            font-size: 0.9em;
-            opacity: 0.9;
-        }
-        
-        .hidden {
-            display: none;
-        }
-        
-        .loading {
-            opacity: 0.7;
-            pointer-events: none;
-        }
-        
-        .spinner {
-            border: 3px solid #f3f3f3;
-            border-top: 3px solid #667eea;
-            border-radius: 50%;
-            width: 20px;
-            height: 20px;
-            animation: spin 1s linear infinite;
-            display: inline-block;
-            margin-right: 10px;
-        }
-        
-        @keyframes spin {
-            0% { transform: rotate(0deg); }
-            100% { transform: rotate(360deg); }
-        }
-
         .image-count {
             font-size: 12px;
             color: #666;
             margin-top: 5px;
+        }
+        
+        .hidden {
+            display: none;
         }
     </style>
 </head>
@@ -303,33 +177,32 @@
             <div class="section">
                 <h3>1. Upload Training Images</h3>
                 <div class="file-input-group">
-                    <label for="pneumonia-files">Upload Pneumonia X-ray Images (JPG/PNG):</label>
+                    <label for="pneumonia-files">Upload Pneumonia X-ray Images:</label>
                     <input type="file" id="pneumonia-files" multiple accept="image/jpeg,image/png,image/jpg">
                     <div class="image-count" id="pneumonia-count">No files selected</div>
                 </div>
                 <div class="file-input-group">
-                    <label for="normal-files">Upload Normal X-ray Images (JPG/PNG):</label>
+                    <label for="normal-files">Upload Normal X-ray Images:</label>
                     <input type="file" id="normal-files" multiple accept="image/jpeg,image/png,image/jpg">
                     <div class="image-count" id="normal-count">No files selected</div>
                 </div>
-                <button onclick="onLoadData()" class="success">Load & Preprocess Data</button>
+                <button onclick="onLoadData()">Load & Preprocess Data</button>
             </div>
             
             <div class="section">
                 <h3>2. Data Status</h3>
                 <div class="status-panel" id="data-status">
-                    No data loaded. Please upload Pneumonia and Normal X-ray images and click "Load & Preprocess Data".
+                    No data loaded. Please upload Pneumonia and Normal X-ray images.
                 </div>
             </div>
             
             <div class="section">
                 <h3>3. Model Training</h3>
-                <div class="button-group">
-                    <button onclick="onTrain()" class="success">Train Model</button>
-                    <button onclick="onSaveModel()" class="warning">Save Model (Download)</button>
-                    <button onclick="document.getElementById('model-files').click()" class="warning">Load Model (From Files)</button>
-                </div>
+                <button onclick="onTrain()">Train Model</button>
+                <button onclick="onSaveModel()">Save Model (Download)</button>
+                <button onclick="document.getElementById('model-files').click()">Load Model (From Files)</button>
                 <input type="file" id="model-files" accept=".json,.bin" style="display: none;" onchange="onLoadModel(event)" multiple>
+                
                 <div id="training-progress" class="status-panel hidden">
                     <!-- Training progress will be displayed here -->
                 </div>
@@ -341,9 +214,9 @@
                     Training charts will appear here once training starts...
                 </div>
             </div>
-
+            
             <div class="section">
-                <h3>5. Model Architecture</h3>
+                <h3>5. Model Summary</h3>
                 <div id="model-summary" class="model-summary">
                     No model loaded. Train a new model or load an existing one.
                 </div>
@@ -357,11 +230,11 @@
             <div class="section">
                 <h3>1. Upload Test Image</h3>
                 <div class="file-input-group">
-                    <label for="test-image">Upload Test X-ray Image (JPG/PNG):</label>
+                    <label for="test-image">Upload Test X-ray Image:</label>
                     <input type="file" id="test-image" accept="image/jpeg,image/png,image/jpg">
                     <div class="image-count" id="test-count">No file selected</div>
                 </div>
-                <button onclick="onPredict()" class="success">Predict</button>
+                <button onclick="onPredict()">Predict</button>
                 
                 <div id="test-image-container" style="text-align: center; margin: 20px 0;">
                     <img id="test-image-preview" class="preview-canvas" style="display: none; max-width: 300px; max-height: 300px;">
@@ -373,15 +246,12 @@
                 <div id="prediction-result" class="status-panel">
                     Upload an X-ray image and click "Predict" to see results.
                 </div>
-                <div class="metrics-grid" id="metrics-display">
-                    <!-- Metrics will be populated here -->
-                </div>
             </div>
-
+            
             <div class="section">
-                <h3>3. Sample Predictions</h3>
+                <h3>3. Sample Training Images</h3>
                 <div class="preview-container" id="sample-predictions">
-                    <!-- Sample predictions will be displayed here -->
+                    <!-- Sample images will be displayed here -->
                 </div>
             </div>
         </div>
@@ -394,14 +264,12 @@
         // Update file count displays
         document.getElementById('pneumonia-files').addEventListener('change', function(e) {
             const count = e.target.files.length;
-            document.getElementById('pneumonia-count').textContent = 
-                count + ' file' + (count !== 1 ? 's' : '') + ' selected';
+            document.getElementById('pneumonia-count').textContent = count + ' file' + (count !== 1 ? 's' : '') + ' selected';
         });
 
         document.getElementById('normal-files').addEventListener('change', function(e) {
             const count = e.target.files.length;
-            document.getElementById('normal-count').textContent = 
-                count + ' file' + (count !== 1 ? 's' : '') + ' selected';
+            document.getElementById('normal-count').textContent = count + ' file' + (count !== 1 ? 's' : '') + ' selected';
         });
 
         document.getElementById('test-image').addEventListener('change', function(e) {
