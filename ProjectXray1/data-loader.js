@@ -9,80 +9,36 @@ let trainingData = {
 };
 
 /**
- * Load and preprocess multiple images from file input - OPTIMIZED VERSION
- * @param {FileList} fileList - List of image files
- * @returns {tf.Tensor} Stacked tensor of preprocessed images
+ * Load and preprocess a single image file
+ * @param {File} file - Image file
+ * @returns {tf.Tensor} Preprocessed image tensor
  */
-async function loadImagesFromFiles(fileList) {
-    if (!fileList || fileList.length === 0) {
-        throw new Error('No files provided');
-    }
-
-    const images = [];
-    const promises = [];
-    
-    // Process files in parallel batches for faster loading
-    for (let i = 0; i < fileList.length; i++) {
-        const file = fileList[i];
+async function loadSingleImage(file) {
+    return new Promise((resolve, reject) => {
+        const reader = new FileReader();
         
-        // Skip non-image files
-        if (!file.type.startsWith('image/')) {
-            console.warn(`Skipping non-image file: ${file.name}`);
-            continue;
-        }
-
-        const promise = new Promise((resolve, reject) => {
-            const reader = new FileReader();
-            
-            reader.onload = (e) => {
-                const img = new Image();
-                img.onload = () => {
-                    // Process image in one tidy block for memory efficiency
-                    const tensor = tf.tidy(() => {
-                        return tf.browser.fromPixels(img)
-                            .resizeNearestNeighbor([128, 128])
-                            .toFloat()
-                            .div(255.0); // Normalize to [0,1]
-                    });
-                    resolve(tensor);
-                };
-                img.onerror = () => reject(new Error(`Failed to load image: ${file.name}`));
-                img.src = e.target.result;
+        reader.onload = (e) => {
+            const img = new Image();
+            img.onload = () => {
+                const tensor = tf.tidy(() => {
+                    return tf.browser.fromPixels(img)
+                        .resizeNearestNeighbor([128, 128])
+                        .toFloat()
+                        .div(255.0);
+                });
+                resolve(tensor);
             };
-            
-            reader.onerror = () => reject(new Error(`Failed to read file: ${file.name}`));
-            reader.readAsDataURL(file);
-        });
-
-        promises.push(promise);
+            img.onerror = () => reject(new Error(`Failed to load image: ${file.name}`));
+            img.src = e.target.result;
+        };
         
-        // Process in batches of 4 to avoid memory issues but maintain speed
-        if (promises.length >= 4) {
-            const batchResults = await Promise.all(promises);
-            images.push(...batchResults);
-            promises.length = 0; // Clear the array
-            await tf.nextFrame(); // Allow UI to update
-        }
-    }
-    
-    // Process any remaining promises
-    if (promises.length > 0) {
-        const remainingResults = await Promise.all(promises);
-        images.push(...remainingResults);
-    }
-
-    if (images.length === 0) {
-        throw new Error('No valid images were processed');
-    }
-
-    // Stack all image tensors into a single tensor
-    return tf.tidy(() => {
-        return tf.stack(images);
+        reader.onerror = () => reject(new Error(`Failed to read file: ${file.name}`));
+        reader.readAsDataURL(file);
     });
 }
 
 /**
- * Prepare training data from pneumonia and normal image files - FIXED VERSION
+ * Prepare training data from pneumonia and normal image files - SIMPLIFIED VERSION
  * @param {FileList} pneumoniaFiles - Pneumonia X-ray images
  * @param {FileList} normalFiles - Normal X-ray images
  * @returns {Object} Object containing features (xs) and labels (ys) tensors
@@ -96,66 +52,74 @@ async function prepareTrainingData(pneumoniaFiles, normalFiles) {
 
     console.log(`Loading ${pneumoniaFiles.length} pneumonia images and ${normalFiles.length} normal images`);
 
-    // Load both datasets in parallel for faster loading
-    const [pneumoniaTensors, normalTensors] = await Promise.all([
-        pneumoniaFiles.length > 0 ? loadImagesFromFiles(pneumoniaFiles) : null,
-        normalFiles.length > 0 ? loadImagesFromFiles(normalFiles) : null
-    ]);
+    // Create file list with labels first (shuffle at file level)
+    const filesWithLabels = [];
+    
+    // Add pneumonia files with label 1
+    for (let i = 0; i < pneumoniaFiles.length; i++) {
+        filesWithLabels.push({
+            file: pneumoniaFiles[i],
+            label: 1
+        });
+    }
+    
+    // Add normal files with label 0
+    for (let i = 0; i < normalFiles.length; i++) {
+        filesWithLabels.push({
+            file: normalFiles[i],
+            label: 0
+        });
+    }
+    
+    // Shuffle the file list (simple JavaScript array shuffle)
+    for (let i = filesWithLabels.length - 1; i > 0; i--) {
+        const j = Math.floor(Math.random() * (i + 1));
+        [filesWithLabels[i], filesWithLabels[j]] = [filesWithLabels[j], filesWithLabels[i]];
+    }
 
+    const images = [];
+    const labels = [];
+    
+    // Load images in batches for better performance
+    const batchSize = 4;
+    
+    for (let i = 0; i < filesWithLabels.length; i += batchSize) {
+        const batchEnd = Math.min(i + batchSize, filesWithLabels.length);
+        const batchPromises = [];
+        
+        for (let j = i; j < batchEnd; j++) {
+            batchPromises.push(loadSingleImage(filesWithLabels[j].file));
+        }
+        
+        const batchTensors = await Promise.all(batchPromises);
+        images.push(...batchTensors);
+        
+        // Add labels for this batch
+        for (let j = i; j < batchEnd; j++) {
+            labels.push(filesWithLabels[j].label);
+        }
+        
+        // Allow UI to update
+        if (i % 8 === 0) {
+            await tf.nextFrame();
+        }
+    }
+
+    if (images.length === 0) {
+        throw new Error('No valid images were processed');
+    }
+
+    // Convert to tensors
     return tf.tidy(() => {
-        let xs, ys;
-
-        if (pneumoniaTensors && normalTensors) {
-            // Both classes available - concatenate
-            xs = tf.concat([pneumoniaTensors, normalTensors], 0);
-            
-            // Create labels: 1 for pneumonia, 0 for normal
-            const pneumoniaLabels = tf.ones([pneumoniaTensors.shape[0], 1]);
-            const normalLabels = tf.zeros([normalTensors.shape[0], 1]);
-            ys = tf.concat([pneumoniaLabels, normalLabels], 0);
-            
-            // Clean up individual tensors
-            pneumoniaTensors.dispose();
-            normalTensors.dispose();
-            
-        } else if (pneumoniaTensors) {
-            // Only pneumonia images
-            xs = pneumoniaTensors;
-            ys = tf.ones([pneumoniaTensors.shape[0], 1]);
-            
-        } else if (normalTensors) {
-            // Only normal images
-            xs = normalTensors;
-            ys = tf.zeros([normalTensors.shape[0], 1]);
-            
-        } else {
-            throw new Error('No valid images found for training');
-        }
-
-        // Shuffle the dataset - FIXED: Convert Uint32Array to regular array first
-        const numSamples = xs.shape[0];
-        const shuffledIndicesArray = tf.util.createShuffledIndices(numSamples);
+        const xs = tf.stack(images);
+        const ys = tf.tensor2d(labels, [labels.length, 1]);
         
-        // Convert Uint32Array to regular array to fix tensor1d issue
-        const regularArray = Array.from(shuffledIndicesArray);
-        const shuffledIndices = tf.tensor1d(regularArray, 'int32');
-        
-        const shuffledXs = tf.gather(xs, shuffledIndices);
-        const shuffledYs = tf.gather(ys, shuffledIndices);
-        
-        // Clean up original tensors and indices
-        if (xs !== pneumoniaTensors && xs !== normalTensors) {
-            xs.dispose();
-        }
-        ys.dispose();
-        shuffledIndices.dispose();
-
-        return { xs: shuffledXs, ys: shuffledYs };
+        return { xs, ys };
     });
 }
 
 /**
- * Load and preprocess a single test image for prediction - OPTIMIZED
+ * Load and preprocess a single test image for prediction
  * @param {File} file - Single image file
  * @returns {tf.Tensor} Preprocessed image tensor ready for model prediction
  */
@@ -189,26 +153,23 @@ async function loadTestImage(file) {
 }
 
 /**
- * Split training data into training and validation sets - SIMPLIFIED VERSION
+ * Split training data into training and validation sets - SIMPLE SLICE
  * @param {tf.Tensor} xs - Features tensor
  * @param {tf.Tensor} ys - Labels tensor
  * @param {number} valRatio - Ratio of data to use for validation (default: 0.2)
  * @returns {Object} Split data {trainXs, trainYs, valXs, valYs}
  */
 function splitTrainVal(xs, ys, valRatio = 0.2) {
-    return tf.tidy(() => {
-        const numSamples = xs.shape[0];
-        const numVal = Math.floor(numSamples * valRatio);
-        const numTrain = numSamples - numVal;
-        
-        // Simple split without complex shuffling
-        const trainXs = xs.slice(0, numTrain);
-        const trainYs = ys.slice(0, numTrain);
-        const valXs = xs.slice(numTrain);
-        const valYs = ys.slice(numTrain);
-        
-        return { trainXs, trainYs, valXs, valYs };
-    });
+    const numSamples = xs.shape[0];
+    const numVal = Math.floor(numSamples * valRatio);
+    const numTrain = numSamples - numVal;
+    
+    return {
+        trainXs: xs.slice(0, numTrain),
+        trainYs: ys.slice(0, numTrain),
+        valXs: xs.slice(numTrain),
+        valYs: ys.slice(numTrain)
+    };
 }
 
 /**
@@ -221,14 +182,18 @@ function getTrainingDataStats() {
     }
     
     const totalSamples = trainingData.ys.shape[0];
-    // Use dataSync only once for efficiency
     const ysData = trainingData.ys.dataSync();
-    const pneumoniaCount = ysData.reduce((sum, val) => sum + val, 0);
+    let pneumoniaCount = 0;
+    
+    for (let i = 0; i < ysData.length; i++) {
+        if (ysData[i] === 1) pneumoniaCount++;
+    }
+    
     const normalCount = totalSamples - pneumoniaCount;
     
     return {
-        pneumoniaCount: Math.round(pneumoniaCount),
-        normalCount: Math.round(normalCount),
+        pneumoniaCount: pneumoniaCount,
+        normalCount: normalCount,
         totalSamples: totalSamples,
         inputShape: trainingData.xs.shape.slice(1)
     };
