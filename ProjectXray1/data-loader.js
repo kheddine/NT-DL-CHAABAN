@@ -9,7 +9,7 @@ let trainingData = {
 };
 
 /**
- * Load and preprocess multiple images from file input
+ * Load and preprocess multiple images from file input - OPTIMIZED VERSION
  * @param {FileList} fileList - List of image files
  * @returns {tf.Tensor} Stacked tensor of preprocessed images
  */
@@ -19,8 +19,9 @@ async function loadImagesFromFiles(fileList) {
     }
 
     const images = [];
+    const promises = [];
     
-    // Process each file sequentially to avoid memory issues
+    // Process files in parallel batches for faster loading
     for (let i = 0; i < fileList.length; i++) {
         const file = fileList[i];
         
@@ -30,46 +31,44 @@ async function loadImagesFromFiles(fileList) {
             continue;
         }
 
-        try {
-            const imageTensor = await new Promise((resolve, reject) => {
-                const reader = new FileReader();
-                
-                reader.onload = (e) => {
-                    tf.tidy(() => {
-                        try {
-                            // Create image element and load data
-                            const img = new Image();
-                            img.onload = () => {
-                                // Convert to tensor and preprocess
-                                const tensor = tf.browser.fromPixels(img)
-                                    .resizeNearestNeighbor([128, 128])
-                                    .toFloat()
-                                    .div(255.0); // Normalize to [0,1]
-                                
-                                resolve(tensor);
-                            };
-                            img.onerror = () => reject(new Error(`Failed to load image: ${file.name}`));
-                            img.src = e.target.result;
-                        } catch (error) {
-                            reject(error);
-                        }
+        const promise = new Promise((resolve, reject) => {
+            const reader = new FileReader();
+            
+            reader.onload = (e) => {
+                const img = new Image();
+                img.onload = () => {
+                    // Process image in one tidy block for memory efficiency
+                    const tensor = tf.tidy(() => {
+                        return tf.browser.fromPixels(img)
+                            .resizeNearestNeighbor([128, 128])
+                            .toFloat()
+                            .div(255.0); // Normalize to [0,1]
                     });
+                    resolve(tensor);
                 };
-                
-                reader.onerror = () => reject(new Error(`Failed to read file: ${file.name}`));
-                reader.readAsDataURL(file);
-            });
+                img.onerror = () => reject(new Error(`Failed to load image: ${file.name}`));
+                img.src = e.target.result;
+            };
+            
+            reader.onerror = () => reject(new Error(`Failed to read file: ${file.name}`));
+            reader.readAsDataURL(file);
+        });
 
-            images.push(imageTensor);
-            
-            // Allow UI to update between image processing
-            if (i % 5 === 0) {
-                await tf.nextFrame();
-            }
-            
-        } catch (error) {
-            console.error(`Error processing file ${file.name}:`, error);
+        promises.push(promise);
+        
+        // Process in batches of 4 to avoid memory issues but maintain speed
+        if (promises.length >= 4) {
+            const batchResults = await Promise.all(promises);
+            images.push(...batchResults);
+            promises.length = 0; // Clear the array
+            await tf.nextFrame(); // Allow UI to update
         }
+    }
+    
+    // Process any remaining promises
+    if (promises.length > 0) {
+        const remainingResults = await Promise.all(promises);
+        images.push(...remainingResults);
     }
 
     if (images.length === 0) {
@@ -83,7 +82,7 @@ async function loadImagesFromFiles(fileList) {
 }
 
 /**
- * Prepare training data from pneumonia and normal image files
+ * Prepare training data from pneumonia and normal image files - FIXED VERSION
  * @param {FileList} pneumoniaFiles - Pneumonia X-ray images
  * @param {FileList} normalFiles - Normal X-ray images
  * @returns {Object} Object containing features (xs) and labels (ys) tensors
@@ -97,15 +96,11 @@ async function prepareTrainingData(pneumoniaFiles, normalFiles) {
 
     console.log(`Loading ${pneumoniaFiles.length} pneumonia images and ${normalFiles.length} normal images`);
 
-    // Load pneumonia images (label = 1)
-    const pneumoniaTensors = pneumoniaFiles.length > 0 ? 
-        await loadImagesFromFiles(pneumoniaFiles) : 
-        null;
-
-    // Load normal images (label = 0)
-    const normalTensors = normalFiles.length > 0 ? 
-        await loadImagesFromFiles(normalFiles) : 
-        null;
+    // Load both datasets in parallel for faster loading
+    const [pneumoniaTensors, normalTensors] = await Promise.all([
+        pneumoniaFiles.length > 0 ? loadImagesFromFiles(pneumoniaFiles) : null,
+        normalFiles.length > 0 ? loadImagesFromFiles(normalFiles) : null
+    ]);
 
     return tf.tidy(() => {
         let xs, ys;
@@ -118,6 +113,10 @@ async function prepareTrainingData(pneumoniaFiles, normalFiles) {
             const pneumoniaLabels = tf.ones([pneumoniaTensors.shape[0], 1]);
             const normalLabels = tf.zeros([normalTensors.shape[0], 1]);
             ys = tf.concat([pneumoniaLabels, normalLabels], 0);
+            
+            // Clean up individual tensors
+            pneumoniaTensors.dispose();
+            normalTensors.dispose();
             
         } else if (pneumoniaTensors) {
             // Only pneumonia images
@@ -133,21 +132,27 @@ async function prepareTrainingData(pneumoniaFiles, normalFiles) {
             throw new Error('No valid images found for training');
         }
 
-        // Shuffle the dataset - FIXED: Convert indices to tensor before gathering
+        // Shuffle the dataset - FIXED: Proper tensor conversion
         const numSamples = xs.shape[0];
-        const shuffledIndices = tf.tensor1d(tf.util.createShuffledIndices(numSamples), 'int32');
-        xs = tf.gather(xs, shuffledIndices);
-        ys = tf.gather(ys, shuffledIndices);
+        const shuffledIndicesArray = tf.util.createShuffledIndices(numSamples);
+        const shuffledIndices = tf.tensor1d(shuffledIndicesArray, 'int32');
         
-        // Dispose the indices tensor
+        const shuffledXs = tf.gather(xs, shuffledIndices);
+        const shuffledYs = tf.gather(ys, shuffledIndices);
+        
+        // Clean up original tensors and indices
+        if (xs !== pneumoniaTensors && xs !== normalTensors) {
+            xs.dispose();
+        }
+        ys.dispose();
         shuffledIndices.dispose();
 
-        return { xs, ys };
+        return { xs: shuffledXs, ys: shuffledYs };
     });
 }
 
 /**
- * Load and preprocess a single test image for prediction
+ * Load and preprocess a single test image for prediction - OPTIMIZED
  * @param {File} file - Single image file
  * @returns {tf.Tensor} Preprocessed image tensor ready for model prediction
  */
@@ -160,25 +165,19 @@ async function loadTestImage(file) {
         const reader = new FileReader();
         
         reader.onload = (e) => {
-            tf.tidy(() => {
-                const img = new Image();
-                img.onload = () => {
-                    try {
-                        // Convert to tensor, resize, normalize, and add batch dimension
-                        const tensor = tf.browser.fromPixels(img)
-                            .resizeNearestNeighbor([128, 128])
-                            .toFloat()
-                            .div(255.0)
-                            .expandDims(0); // Add batch dimension [1, 128, 128, 3]
-                        
-                        resolve(tensor);
-                    } catch (error) {
-                        reject(error);
-                    }
-                };
-                img.onerror = () => reject(new Error('Failed to load test image'));
-                img.src = e.target.result;
-            });
+            const img = new Image();
+            img.onload = () => {
+                const tensor = tf.tidy(() => {
+                    return tf.browser.fromPixels(img)
+                        .resizeNearestNeighbor([128, 128])
+                        .toFloat()
+                        .div(255.0)
+                        .expandDims(0); // Add batch dimension [1, 128, 128, 3]
+                });
+                resolve(tensor);
+            };
+            img.onerror = () => reject(new Error('Failed to load test image'));
+            img.src = e.target.result;
         };
         
         reader.onerror = () => reject(new Error('Failed to read test file'));
@@ -187,7 +186,7 @@ async function loadTestImage(file) {
 }
 
 /**
- * Split training data into training and validation sets - FIXED VERSION
+ * Split training data into training and validation sets - SIMPLIFIED VERSION
  * @param {tf.Tensor} xs - Features tensor
  * @param {tf.Tensor} ys - Labels tensor
  * @param {number} valRatio - Ratio of data to use for validation (default: 0.2)
@@ -199,23 +198,11 @@ function splitTrainVal(xs, ys, valRatio = 0.2) {
         const numVal = Math.floor(numSamples * valRatio);
         const numTrain = numSamples - numVal;
         
-        // Create shuffled indices as tensor
-        const indices = tf.tensor1d(tf.util.createShuffledIndices(numSamples), 'int32');
-        
-        // Split indices into training and validation
-        const trainIndices = indices.slice(0, numTrain);
-        const valIndices = indices.slice(numTrain);
-        
-        // Split data using indices
-        const trainXs = tf.gather(xs, trainIndices);
-        const trainYs = tf.gather(ys, trainIndices);
-        const valXs = tf.gather(xs, valIndices);
-        const valYs = tf.gather(ys, valIndices);
-        
-        // Clean up indices tensors
-        indices.dispose();
-        trainIndices.dispose();
-        valIndices.dispose();
+        // Simple split without complex shuffling
+        const trainXs = xs.slice(0, numTrain);
+        const trainYs = ys.slice(0, numTrain);
+        const valXs = xs.slice(numTrain);
+        const valYs = ys.slice(numTrain);
         
         return { trainXs, trainYs, valXs, valYs };
     });
@@ -231,9 +218,9 @@ function getTrainingDataStats() {
     }
     
     const totalSamples = trainingData.ys.shape[0];
-    const pneumoniaCount = tf.tidy(() => 
-        trainingData.ys.sum().dataSync()[0]
-    );
+    // Use dataSync only once for efficiency
+    const ysData = trainingData.ys.dataSync();
+    const pneumoniaCount = ysData.reduce((sum, val) => sum + val, 0);
     const normalCount = totalSamples - pneumoniaCount;
     
     return {
@@ -248,13 +235,15 @@ function getTrainingDataStats() {
  * Clean up tensor memory
  */
 function disposeData() {
-    if (trainingData.xs) trainingData.xs.dispose();
-    if (trainingData.ys) trainingData.ys.dispose();
+    if (trainingData.xs) {
+        trainingData.xs.dispose();
+        trainingData.xs = null;
+    }
+    if (trainingData.ys) {
+        trainingData.ys.dispose();
+        trainingData.ys = null;
+    }
     
-    trainingData = {
-        pneumoniaFiles: [],
-        normalFiles: [],
-        xs: null,
-        ys: null
-    };
+    trainingData.pneumoniaFiles = [];
+    trainingData.normalFiles = [];
 }
