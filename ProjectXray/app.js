@@ -1,305 +1,458 @@
-class COVID19App {
+class PneumoniaApp {
     constructor() {
-        this.model = new COVID19Model();
-        this.dataLoader = new DataLoader();
-        this.isModelTrained = false;
-        this.initializeEventListeners();
-        this.initializeModel();
+        this.model = new PneumoniaModel();
+        this.currentMode = 'training';
+        this.trainingData = {
+            normal: [],
+            pneumonia: []
+        };
+        this.testImages = [];
+        
+        this.initialize();
     }
 
-    initializeEventListeners() {
-        // Training data upload
-        document.getElementById('pneumonia-upload').addEventListener('click', () => {
-            document.getElementById('pneumonia-files').click();
+    async initialize() {
+        try {
+            await this.model.initialize();
+            this.setupEventListeners();
+            this.updateUI();
+            this.showResults('Application ready. Upload training data to begin.');
+        } catch (error) {
+            this.showResults(`Initialization failed: ${error.message}`);
+        }
+    }
+
+    setupEventListeners() {
+        // Mode switching
+        document.querySelectorAll('.mode-btn').forEach(btn => {
+            btn.addEventListener('click', (e) => {
+                this.switchMode(e.target.dataset.mode);
+            });
         });
+
+        // Training file inputs
+        document.getElementById('normalFiles').addEventListener('change', (e) => {
+            this.handleTrainingFiles(e.target.files, 'normal');
+        });
+        document.getElementById('pneumoniaFiles').addEventListener('change', (e) => {
+            this.handleTrainingFiles(e.target.files, 'pneumonia');
+        });
+
+        // Testing file input
+        const uploadArea = document.getElementById('uploadArea');
+        const testFilesInput = document.getElementById('testFiles');
         
-        document.getElementById('normal-upload').addEventListener('click', () => {
-            document.getElementById('normal-files').click();
+        uploadArea.addEventListener('click', () => testFilesInput.click());
+        testFilesInput.addEventListener('change', (e) => {
+            this.handleTestFiles(e.target.files);
         });
 
-        document.getElementById('pneumonia-files').addEventListener('change', (e) => {
-            this.handleTrainingUpload(e.target.files, 'pneumonia');
+        // Drag and drop for testing
+        uploadArea.addEventListener('dragover', (e) => {
+            e.preventDefault();
+            uploadArea.style.background = '#e3f2fd';
+            uploadArea.style.borderColor = '#3498db';
         });
 
-        document.getElementById('normal-files').addEventListener('change', (e) => {
-            this.handleTrainingUpload(e.target.files, 'normal');
+        uploadArea.addEventListener('dragleave', (e) => {
+            e.preventDefault();
+            uploadArea.style.background = '';
+            uploadArea.style.borderColor = '#bdc3c7';
         });
 
-        // Test data upload
-        document.getElementById('test-upload').addEventListener('click', () => {
-            document.getElementById('test-files').click();
+        uploadArea.addEventListener('drop', (e) => {
+            e.preventDefault();
+            uploadArea.style.background = '';
+            uploadArea.style.borderColor = '#bdc3c7';
+            this.handleTestFiles(e.dataTransfer.files);
         });
 
-        document.getElementById('test-files').addEventListener('change', (e) => {
-            this.handleTestUpload(e.target.files);
-        });
-
-        // Buttons
-        document.getElementById('train-btn').addEventListener('click', () => {
+        // Action buttons
+        document.getElementById('trainBtn').addEventListener('click', () => {
             this.startTraining();
         });
-
-        document.getElementById('test-btn').addEventListener('click', () => {
-            this.testModel();
+        document.getElementById('predictBtn').addEventListener('click', () => {
+            this.runPredictions();
         });
-
-        document.getElementById('clear-training-btn').addEventListener('click', () => {
-            this.clearTrainingData();
+        document.getElementById('resetBtn').addEventListener('click', () => {
+            this.resetTraining();
         });
-
-        document.getElementById('clear-test-btn').addEventListener('click', () => {
-            this.clearTestData();
+        document.getElementById('clearBtn').addEventListener('click', () => {
+            this.clearTesting();
         });
     }
 
-    async initializeModel() {
+    switchMode(mode) {
+        this.currentMode = mode;
+        
+        // Update UI
+        document.querySelectorAll('.mode-btn').forEach(btn => {
+            btn.classList.toggle('active', btn.dataset.mode === mode);
+        });
+        
+        document.getElementById('trainingSection').style.display = 
+            mode === 'training' ? 'block' : 'none';
+        document.getElementById('testingSection').style.display = 
+            mode === 'testing' ? 'block' : 'none';
+        
+        document.getElementById('panelTitle').textContent = 
+            mode === 'training' ? 'Training Data' : 'Test Images';
+        document.getElementById('resultsTitle').textContent = 
+            mode === 'training' ? 'Training Results' : 'Prediction Results';
+        
+        this.updateUI();
+    }
+
+    async handleTrainingFiles(files, type) {
+        const validFiles = this.validateFiles(files);
+        if (validFiles.length === 0) return;
+
+        this.showLoading(`Loading ${type} images...`);
+        
         try {
-            this.model.createModel();
-            console.log('Model initialized successfully');
+            this.trainingData[type] = await this.loadImages(validFiles);
+            this.updateTrainingStats(type, this.trainingData[type].length);
+            this.checkTrainingReady();
         } catch (error) {
-            this.showError('Failed to initialize model: ' + error.message);
+            this.showResults(`Error loading ${type} images: ${error.message}`);
+        } finally {
+            this.hideLoading();
         }
     }
 
-    async handleTrainingUpload(files, category) {
-        if (files.length === 0) return;
+    async handleTestFiles(files) {
+        const validFiles = this.validateFiles(files);
+        if (validFiles.length === 0) return;
 
-        this.showLoading('training');
+        this.showLoading('Loading test images...');
         
         try {
-            const results = await this.dataLoader.loadTrainingImages(Array.from(files), category);
-            this.updateTrainingPreview(category, results);
-            this.updateTrainingCounts();
-            this.hideLoading('training');
+            this.testImages = await this.loadImages(validFiles);
+            this.showImagePreviews(this.testImages);
+            document.getElementById('predictBtn').disabled = false;
+            this.showResults(`Loaded ${this.testImages.length} test images. Ready for prediction.`);
         } catch (error) {
-            this.showError('Error uploading training images: ' + error.message);
-            this.hideLoading('training');
+            this.showResults(`Error loading test images: ${error.message}`);
+        } finally {
+            this.hideLoading();
         }
     }
 
-    async handleTestUpload(files) {
-        if (files.length === 0) return;
+    validateFiles(files) {
+        return Array.from(files).filter(file => {
+            const isImage = file.type.startsWith('image/');
+            const isSizeValid = file.size <= 10 * 1024 * 1024; // 10MB
+            
+            if (!isImage) {
+                console.warn(`Skipping non-image file: ${file.name}`);
+                return false;
+            }
+            if (!isSizeValid) {
+                console.warn(`File too large: ${file.name} (${(file.size / 1024 / 1024).toFixed(1)}MB)`);
+                return false;
+            }
+            
+            return true;
+        });
+    }
 
-        this.showLoading('test');
-        
-        try {
-            const results = await this.dataLoader.loadTestImages(Array.from(files));
-            this.updateTestPreview(results);
-            this.hideLoading('test');
-        } catch (error) {
-            this.showError('Error uploading test images: ' + error.message);
-            this.hideLoading('test');
+    async loadImages(files) {
+        const images = [];
+        for (let file of files) {
+            try {
+                const imageData = await this.loadImage(file);
+                images.push(imageData);
+            } catch (error) {
+                console.error(`Failed to load image ${file.name}:`, error);
+            }
         }
+        return images;
     }
 
-    updateTrainingPreview(category, images) {
-        const previewContainer = document.getElementById(`${category}-preview`);
-        
-        images.forEach(imageData => {
-            const img = document.createElement('img');
-            img.src = URL.createObjectURL(imageData.file);
-            img.className = 'preview-image';
-            img.title = imageData.file.name;
-            previewContainer.appendChild(img);
+    loadImage(file) {
+        return new Promise((resolve, reject) => {
+            const reader = new FileReader();
+            const img = new Image();
+            
+            reader.onload = (e) => {
+                img.onload = () => resolve({
+                    file: file,
+                    element: img,
+                    url: e.target.result
+                });
+                img.onerror = () => reject(new Error(`Failed to load image: ${file.name}`));
+                img.src = e.target.result;
+            };
+            
+            reader.onerror = () => reject(new Error(`Failed to read file: ${file.name}`));
+            reader.readAsDataURL(file);
         });
     }
 
-    updateTestPreview(images) {
-        const previewContainer = document.getElementById('test-preview');
-        const countElement = document.getElementById('test-count');
-        
-        previewContainer.innerHTML = '';
-        
-        images.forEach(imageData => {
-            const img = document.createElement('img');
-            img.src = URL.createObjectURL(imageData.file);
-            img.className = 'preview-image';
-            img.title = imageData.file.name;
-            previewContainer.appendChild(img);
-        });
-        
-        const stats = this.dataLoader.getStats();
-        countElement.textContent = `${stats.test} test images`;
+    updateTrainingStats(type, count) {
+        const statsDiv = document.getElementById(`${type}Stats`);
+        statsDiv.innerHTML = `
+            <div class="stat-card">
+                <div class="stat-value ${type}-stat">${count}</div>
+                <div>${type.charAt(0).toUpperCase() + type.slice(1)} Images</div>
+            </div>
+        `;
+        statsDiv.style.display = 'grid';
     }
 
-    updateTrainingCounts() {
-        const stats = this.dataLoader.getStats();
-        document.getElementById('pneumonia-count').textContent = `${stats.pneumonia} images`;
-        document.getElementById('normal-count').textContent = `${stats.normal} images`;
+    checkTrainingReady() {
+        const normalCount = this.trainingData.normal.length;
+        const pneumoniaCount = this.trainingData.pneumonia.length;
+        const isReady = normalCount > 0 && pneumoniaCount > 0;
+        
+        document.getElementById('trainBtn').disabled = !isReady;
+        
+        if (isReady) {
+            const total = normalCount + pneumoniaCount;
+            this.showResults(`Ready to train! ${total} total images (${normalCount} normal, ${pneumoniaCount} pneumonia)`);
+        }
     }
 
     async startTraining() {
-        const stats = this.dataLoader.getStats();
+        const normalCount = this.trainingData.normal.length;
+        const pneumoniaCount = this.trainingData.pneumonia.length;
         
-        if (stats.pneumonia === 0 || stats.normal === 0) {
-            this.showError('Please upload both COVID-19/Pneumonia and Normal images for training');
+        if (normalCount === 0 || pneumoniaCount === 0) {
+            this.showResults('Please upload both normal and pneumonia images for training.');
             return;
         }
 
-        const epochs = parseInt(document.getElementById('epochs').value);
-        const batchSize = parseInt(document.getElementById('batch-size').value);
-        const learningRate = parseFloat(document.getElementById('learning-rate').value);
-        const validationSplit = parseFloat(document.getElementById('test-split').value);
-
-        this.showLoading('training');
-        document.getElementById('training-progress').style.display = 'block';
-        document.getElementById('training-results').style.display = 'none';
+        this.showLoading('Preparing training data...');
+        document.getElementById('trainBtn').disabled = true;
+        document.getElementById('trainingProgress').style.display = 'block';
 
         try {
-            // Prepare data
-            const data = this.dataLoader.prepareTrainingData(validationSplit);
-            
-            // Update model learning rate
-            this.model.model.compile({
-                optimizer: tf.train.adam(learningRate),
-                loss: 'categoricalCrossentropy',
-                metrics: ['accuracy']
+            const trainingData = this.prepareTrainingData();
+            const epochs = parseInt(document.getElementById('epochs').value);
+            const batchSize = parseInt(document.getElementById('batchSize').value);
+
+            await this.model.train(trainingData, epochs, batchSize, (progress) => {
+                const percent = (progress.epoch / progress.totalEpochs) * 100;
+                document.getElementById('progressFill').style.width = `${percent}%`;
+                
+                let progressText = `Epoch ${progress.epoch}/${progress.totalEpochs}`;
+                progressText += ` • Accuracy: ${(progress.accuracy * 100).toFixed(1)}%`;
+                progressText += ` • Loss: ${progress.loss.toFixed(4)}`;
+                
+                if (progress.valAccuracy) {
+                    progressText += ` • Val Accuracy: ${(progress.valAccuracy * 100).toFixed(1)}%`;
+                }
+                
+                document.getElementById('progressText').textContent = progressText;
             });
 
-            // Start training
-            const history = await this.model.trainModel(
-                data.training,
-                data.validation,
-                {
-                    epochs: epochs,
-                    batchSize: batchSize,
-                    onEpochEnd: (epoch, logs) => {
-                        this.updateTrainingProgress(epoch, epochs, logs);
-                    },
-                    onTrainEnd: () => {
-                        this.onTrainingComplete(data.summary);
-                    }
-                }
-            );
-
-            this.isModelTrained = true;
-
+            this.showResults('Training completed successfully! Model is ready for testing.');
+            
         } catch (error) {
-            this.showError('Training failed: ' + error.message);
-            this.hideLoading('training');
+            this.showResults(`Training failed: ${error.message}`);
+        } finally {
+            this.hideLoading();
+            document.getElementById('trainingProgress').style.display = 'none';
+            document.getElementById('trainBtn').disabled = false;
         }
     }
 
-    updateTrainingProgress(epoch, totalEpochs, logs) {
-        const progress = ((epoch + 1) / totalEpochs) * 100;
-        const progressFill = document.getElementById('progress-fill');
-        const progressText = document.getElementById('progress-text');
+    prepareTrainingData() {
+        const allTensors = [];
+        const allLabels = [];
         
-        progressFill.style.width = `${progress}%`;
-        progressText.textContent = 
-            `Epoch: ${epoch + 1}/${totalEpochs} - ` +
-            `Loss: ${logs.loss.toFixed(4)} - ` +
-            `Accuracy: ${(logs.acc * 100).toFixed(1)}% - ` +
-            `Val Loss: ${logs.val_loss ? logs.val_loss.toFixed(4) : 'N/A'} - ` +
-            `Val Acc: ${logs.val_acc ? (logs.val_acc * 100).toFixed(1) + '%' : 'N/A'}`;
+        // Process normal images
+        this.trainingData.normal.forEach(img => {
+            const tensor = this.preprocessImage(img.element);
+            allTensors.push(tensor);
+            allLabels.push(0); // Normal = 0
+        });
+        
+        // Process pneumonia images
+        this.trainingData.pneumonia.forEach(img => {
+            const tensor = this.preprocessImage(img.element);
+            allTensors.push(tensor);
+            allLabels.push(1); // Pneumonia = 1
+        });
+        
+        const xs = tf.stack(allTensors);
+        const ys = tf.oneHot(allLabels, 2);
+        
+        return { xs, ys };
     }
 
-    onTrainingComplete(summary) {
-        this.hideLoading('training');
-        document.getElementById('training-results').style.display = 'block';
-
-        // Update metrics (using placeholder values - in real app, use actual final metrics)
-        document.getElementById('final-accuracy').textContent = '85.2%';
-        document.getElementById('final-loss').textContent = '0.3245';
-        document.getElementById('val-accuracy').textContent = '82.1%';
-        document.getElementById('val-loss').textContent = '0.3876';
-
-        // Update summary
-        const summaryElement = document.getElementById('training-summary');
-        summaryElement.innerHTML = `
-            <p><strong>Training Summary:</strong></p>
-            <p>Total Images: ${summary.total} (COVID-19: ${summary.pneumonia}, Normal: ${summary.normal})</p>
-            <p>Training Set: ${summary.training} images</p>
-            <p>Validation Set: ${summary.validation} images</p>
-        `;
-
-        this.showSuccess('Model training completed successfully!');
-    }
-
-    async testModel() {
-        if (!this.isModelTrained) {
-            this.showError('Please train the model first before testing');
-            return;
-        }
-
-        const testData = this.dataLoader.testData;
-        if (testData.length === 0) {
-            this.showError('Please upload test images first');
-            return;
-        }
-
-        this.showLoading('test');
-
-        try {
-            const results = await this.model.predictBatch(testData.map(img => img.tensor));
-            this.displayTestResults(results);
-            this.hideLoading('test');
-        } catch (error) {
-            this.showError('Testing failed: ' + error.message);
-            this.hideLoading('test');
-        }
-    }
-
-    displayTestResults(results) {
-        const resultsContainer = document.getElementById('prediction-results');
-        resultsContainer.innerHTML = '<h4>Classification Results:</h4>';
-
-        results.forEach((result, index) => {
-            const resultElement = document.createElement('div');
-            resultElement.className = `prediction-item ${result.className === 'COVID-19' ? 'prediction-covid' : 'prediction-normal'}`;
+    preprocessImage(imgElement) {
+        return tf.tidy(() => {
+            let tensor = tf.browser.fromPixels(imgElement);
             
-            const confidencePercent = (result.confidence * 100).toFixed(1);
+            // Handle different channel formats
+            if (tensor.shape[2] === 1) {
+                // Grayscale to RGB
+                tensor = tensor.concat([tensor, tensor], 2);
+            } else if (tensor.shape[2] === 4) {
+                // Remove alpha channel
+                tensor = tensor.slice([0, 0, 0], [tensor.shape[0], tensor.shape[1], 3]);
+            }
             
-            resultElement.innerHTML = `
-                <strong>Image ${index + 1}: ${result.className}</strong>
-                <div class="confidence-bar">
-                    <div class="confidence-fill" style="width: ${confidencePercent}%"></div>
-                </div>
-                <div style="font-size: 14px;">
-                    Confidence: ${confidencePercent}%<br>
-                    COVID-19 Probability: ${(result.probabilities['COVID-19'] * 100).toFixed(1)}%<br>
-                    Normal Probability: ${(result.probabilities['Normal'] * 100).toFixed(1)}%
-                </div>
-            `;
-
-            resultsContainer.appendChild(resultElement);
+            // Resize and normalize
+            tensor = tf.image.resizeBilinear(tensor, [150, 150]);
+            tensor = tensor.div(255.0);
+            
+            return tensor;
         });
     }
 
-    clearTrainingData() {
-        this.dataLoader.clearTrainingData();
-        document.getElementById('pneumonia-preview').innerHTML = '';
-        document.getElementById('normal-preview').innerHTML = '';
-        document.getElementById('training-results').style.display = 'none';
-        document.getElementById('training-progress').style.display = 'none';
-        this.updateTrainingCounts();
+    async runPredictions() {
+        if (this.testImages.length === 0) {
+            this.showResults('Please upload test images first.');
+            return;
+        }
+
+        this.showLoading('Running predictions...');
+        document.getElementById('predictBtn').disabled = true;
+
+        try {
+            const modelLoaded = await this.model.loadModel();
+            if (!modelLoaded) {
+                throw new Error('No trained model found. Please train a model first.');
+            }
+
+            const testTensors = this.testImages.map(img => this.preprocessImage(img.element));
+            const predictions = await this.model.predictBatch(testTensors);
+            
+            this.displayPredictions(predictions);
+            
+        } catch (error) {
+            this.showResults(`Prediction error: ${error.message}`);
+        } finally {
+            this.hideLoading();
+            document.getElementById('predictBtn').disabled = false;
+            
+            // Clean up tensors
+            tf.engine().startScope();
+            tf.engine().endScope();
+        }
     }
 
-    clearTestData() {
-        this.dataLoader.clearTestData();
-        document.getElementById('test-preview').innerHTML = '';
-        document.getElementById('prediction-results').innerHTML = '';
-        document.getElementById('test-count').textContent = '0 test images';
+    displayPredictions(predictions) {
+        let html = '<h3>Prediction Results</h3>';
+        let normalCount = 0;
+        let pneumoniaCount = 0;
+        let errorCount = 0;
+
+        // Summary stats
+        predictions.forEach((pred, index) => {
+            if (!pred) {
+                errorCount++;
+                return;
+            }
+            
+            if (pred.predictedClass === 'Normal') normalCount++;
+            else pneumoniaCount++;
+        });
+
+        html += `
+            <div class="stats-grid">
+                <div class="stat-card">
+                    <div class="stat-value normal-stat">${normalCount}</div>
+                    <div>Normal</div>
+                </div>
+                <div class="stat-card">
+                    <div class="stat-value pneumonia-stat">${pneumoniaCount}</div>
+                    <div>Pneumonia</div>
+                </div>
+                ${errorCount > 0 ? `
+                <div class="stat-card">
+                    <div class="stat-value" style="color: #f39c12;">${errorCount}</div>
+                    <div>Errors</div>
+                </div>
+                ` : ''}
+            </div>
+        `;
+
+        // Individual predictions
+        predictions.forEach((pred, index) => {
+            if (!pred) return;
+            
+            const image = this.testImages[index];
+            const isPneumonia = pred.predictedClass === 'Pneumonia';
+            const confidencePercent = (pred.confidence * 100).toFixed(1);
+            
+            html += `
+                <div class="prediction-result ${isPneumonia ? 'pneumonia-positive' : 'normal-negative'}">
+                    <h4>${image.file.name}</h4>
+                    <div><strong>Prediction:</strong> ${pred.predictedClass}</div>
+                    <div><strong>Confidence:</strong> ${confidencePercent}%</div>
+                    <div class="confidence-bar">
+                        <div class="confidence-fill" style="width: ${confidencePercent}%"></div>
+                    </div>
+                    <div style="font-size: 0.9em; color: #666;">
+                        Normal: ${(pred.normal * 100).toFixed(1)}% | 
+                        Pneumonia: ${(pred.pneumonia * 100).toFixed(1)}%
+                    </div>
+                </div>
+            `;
+        });
+
+        this.showResults(html);
     }
 
-    showLoading(type) {
-        document.getElementById(`${type}-loading`).style.display = 'block';
+    showImagePreviews(images) {
+        const container = document.getElementById('imagePreview');
+        container.innerHTML = '';
+        
+        images.forEach(img => {
+            const div = document.createElement('div');
+            div.className = 'preview-item';
+            div.innerHTML = `<img src="${img.url}" alt="${img.file.name}">`;
+            container.appendChild(div);
+        });
     }
 
-    hideLoading(type) {
-        document.getElementById(`${type}-loading`).style.display = 'none';
+    showLoading(message) {
+        document.getElementById('loadingText').textContent = message;
+        document.getElementById('loadingIndicator').style.display = 'block';
     }
 
-    showError(message) {
-        alert('Error: ' + message);
+    hideLoading() {
+        document.getElementById('loadingIndicator').style.display = 'none';
     }
 
-    showSuccess(message) {
-        alert('Success: ' + message);
+    showResults(content) {
+        document.getElementById('resultsArea').innerHTML = content;
+    }
+
+    updateUI() {
+        if (this.currentMode === 'testing') {
+            document.getElementById('predictBtn').disabled = this.testImages.length === 0;
+        }
+    }
+
+    clearTesting() {
+        this.testImages = [];
+        document.getElementById('imagePreview').innerHTML = '';
+        document.getElementById('testFiles').value = '';
+        document.getElementById('predictBtn').disabled = true;
+        this.showResults('Upload test images to run predictions.');
+    }
+
+    resetTraining() {
+        this.trainingData = { normal: [], pneumonia: [] };
+        this.model.dispose();
+        
+        // Reset UI
+        document.getElementById('normalFiles').value = '';
+        document.getElementById('pneumoniaFiles').value = '';
+        document.getElementById('normalStats').style.display = 'none';
+        document.getElementById('pneumoniaStats').style.display = 'none';
+        document.getElementById('trainBtn').disabled = true;
+        document.getElementById('trainingProgress').style.display = 'none';
+        
+        this.showResults('Training data cleared. Upload new data to begin training.');
     }
 }
 
-// Initialize the app when the page loads
+// Initialize application
 document.addEventListener('DOMContentLoaded', () => {
-    new COVID19App();
+    window.app = new PneumoniaApp();
 });
