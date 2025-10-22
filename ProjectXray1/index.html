@@ -4,7 +4,7 @@
 <head>
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
-    <title>MNIST Classifier - TensorFlow.js</title>
+    <title>COVID-19 X-ray Classifier</title>
     <script src="https://cdn.jsdelivr.net/npm/@tensorflow/tfjs@latest"></script>
     <script src="https://cdn.jsdelivr.net/npm/@tensorflow/tfjs-vis@latest"></script>
     <style>
@@ -130,10 +130,6 @@
             box-shadow: none;
         }
         
-        button.secondary {
-            background: linear-gradient(135deg, #6c757d, #495057);
-        }
-        
         button.success {
             background: linear-gradient(135deg, #28a745, #20c997);
         }
@@ -205,6 +201,8 @@
             border: 2px solid #e9ecef;
             border-radius: 8px;
             margin-bottom: 10px;
+            max-width: 150px;
+            max-height: 150px;
         }
         
         .prediction-label {
@@ -214,14 +212,14 @@
             border-radius: 5px;
         }
         
-        .prediction-correct {
-            background-color: #d4edda;
-            color: #155724;
-        }
-        
-        .prediction-incorrect {
+        .pneumonia {
             background-color: #f8d7da;
             color: #721c24;
+        }
+        
+        .normal {
+            background-color: #d4edda;
+            color: #155724;
         }
         
         .model-summary {
@@ -286,10 +284,16 @@
             0% { transform: rotate(0deg); }
             100% { transform: rotate(360deg); }
         }
+
+        .image-count {
+            font-size: 12px;
+            color: #666;
+            margin-top: 5px;
+        }
     </style>
 </head>
 <body>
-    <h1>MNIST Handwritten Digit Classifier</h1>
+    <h1>COVID-19 X-ray Classifier</h1>
     
     <div class="container">
         <!-- Left Column: Training Section -->
@@ -297,22 +301,24 @@
             <h2>Training Section</h2>
             
             <div class="section">
-                <h3>1. Upload MNIST Data</h3>
+                <h3>1. Upload Training Images</h3>
                 <div class="file-input-group">
-                    <label for="train-file">Upload Training CSV (mnist_train.csv):</label>
-                    <input type="file" id="train-file" accept=".csv">
+                    <label for="pneumonia-files">Upload Pneumonia X-ray Images (JPG/PNG):</label>
+                    <input type="file" id="pneumonia-files" multiple accept="image/jpeg,image/png,image/jpg">
+                    <div class="image-count" id="pneumonia-count">No files selected</div>
                 </div>
                 <div class="file-input-group">
-                    <label for="test-file">Upload Test CSV (mnist_test.csv):</label>
-                    <input type="file" id="test-file" accept=".csv">
+                    <label for="normal-files">Upload Normal X-ray Images (JPG/PNG):</label>
+                    <input type="file" id="normal-files" multiple accept="image/jpeg,image/png,image/jpg">
+                    <div class="image-count" id="normal-count">No files selected</div>
                 </div>
-                <button onclick="onLoadData()" class="success">Load Data</button>
+                <button onclick="onLoadData()" class="success">Load & Preprocess Data</button>
             </div>
             
             <div class="section">
                 <h3>2. Data Status</h3>
                 <div class="status-panel" id="data-status">
-                    No data loaded. Please upload MNIST CSV files and click "Load Data".
+                    No data loaded. Please upload Pneumonia and Normal X-ray images and click "Load & Preprocess Data".
                 </div>
             </div>
             
@@ -320,9 +326,10 @@
                 <h3>3. Model Training</h3>
                 <div class="button-group">
                     <button onclick="onTrain()" class="success">Train Model</button>
-                    <button onclick="onEvaluate()" class="warning">Evaluate Model</button>
-                    <button onclick="onTestFive()" class="secondary">Test 5 Random</button>
+                    <button onclick="onSaveModel()" class="warning">Save Model (Download)</button>
+                    <button onclick="document.getElementById('model-files').click()" class="warning">Load Model (From Files)</button>
                 </div>
+                <input type="file" id="model-files" accept=".json,.bin" style="display: none;" onchange="onLoadModel(event)" multiple>
                 <div id="training-progress" class="status-panel hidden">
                     <!-- Training progress will be displayed here -->
                 </div>
@@ -334,44 +341,47 @@
                     Training charts will appear here once training starts...
                 </div>
             </div>
+
+            <div class="section">
+                <h3>5. Model Architecture</h3>
+                <div id="model-summary" class="model-summary">
+                    No model loaded. Train a new model or load an existing one.
+                </div>
+            </div>
         </div>
         
-        <!-- Right Column: Testing & Model Management -->
+        <!-- Right Column: Testing Section -->
         <div class="column">
-            <h2>Testing & Model Management</h2>
+            <h2>Testing Section</h2>
             
             <div class="section">
-                <h3>1. Model Operations</h3>
-                <div class="button-group">
-                    <button onclick="onSaveModel()" class="success">Save Model (Download)</button>
-                    <button onclick="document.getElementById('model-files').click()" class="secondary">Load Model (From Files)</button>
-                    <button onclick="onReset()" class="danger">Reset</button>
-                    <button onclick="tfvis.visor().toggle()" class="secondary">Toggle Visor</button>
+                <h3>1. Upload Test Image</h3>
+                <div class="file-input-group">
+                    <label for="test-image">Upload Test X-ray Image (JPG/PNG):</label>
+                    <input type="file" id="test-image" accept="image/jpeg,image/png,image/jpg">
+                    <div class="image-count" id="test-count">No file selected</div>
                 </div>
-                <input type="file" id="model-files" accept=".json,.bin" style="display: none;" onchange="onLoadModel(event)" multiple>
+                <button onclick="onPredict()" class="success">Predict</button>
+                
+                <div id="test-image-container" style="text-align: center; margin: 20px 0;">
+                    <img id="test-image-preview" class="preview-canvas" style="display: none; max-width: 300px; max-height: 300px;">
+                </div>
             </div>
             
             <div class="section">
-                <h3>2. Model Performance</h3>
+                <h3>2. Prediction Result</h3>
+                <div id="prediction-result" class="status-panel">
+                    Upload an X-ray image and click "Predict" to see results.
+                </div>
                 <div class="metrics-grid" id="metrics-display">
                     <!-- Metrics will be populated here -->
                 </div>
-                <div id="evaluation-results" class="status-panel hidden">
-                    <!-- Evaluation results will be displayed here -->
-                </div>
             </div>
-            
+
             <div class="section">
-                <h3>3. Random Test Preview</h3>
-                <div class="preview-container" id="test-preview">
-                    <!-- 5 random test images will be displayed here -->
-                </div>
-            </div>
-            
-            <div class="section">
-                <h3>4. Model Architecture</h3>
-                <div id="model-summary" class="model-summary">
-                    No model loaded. Train a new model or load an existing one.
+                <h3>3. Sample Predictions</h3>
+                <div class="preview-container" id="sample-predictions">
+                    <!-- Sample predictions will be displayed here -->
                 </div>
             </div>
         </div>
@@ -379,5 +389,38 @@
 
     <script defer src="data-loader.js"></script>
     <script defer src="app.js"></script>
+
+    <script>
+        // Update file count displays
+        document.getElementById('pneumonia-files').addEventListener('change', function(e) {
+            const count = e.target.files.length;
+            document.getElementById('pneumonia-count').textContent = 
+                count + ' file' + (count !== 1 ? 's' : '') + ' selected';
+        });
+
+        document.getElementById('normal-files').addEventListener('change', function(e) {
+            const count = e.target.files.length;
+            document.getElementById('normal-count').textContent = 
+                count + ' file' + (count !== 1 ? 's' : '') + ' selected';
+        });
+
+        document.getElementById('test-image').addEventListener('change', function(e) {
+            const file = e.target.files[0];
+            if (file) {
+                document.getElementById('test-count').textContent = '1 file selected';
+                // Preview the test image
+                const reader = new FileReader();
+                reader.onload = function(e) {
+                    const preview = document.getElementById('test-image-preview');
+                    preview.src = e.target.result;
+                    preview.style.display = 'block';
+                };
+                reader.readAsDataURL(file);
+            } else {
+                document.getElementById('test-count').textContent = 'No file selected';
+                document.getElementById('test-image-preview').style.display = 'none';
+            }
+        });
+    </script>
 </body>
 </html>
