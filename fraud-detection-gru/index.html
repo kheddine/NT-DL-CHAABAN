@@ -6,19 +6,101 @@
     <title>Browser-Based Fraud Detection</title>
     <script src="https://cdn.jsdelivr.net/npm/@tensorflow/tfjs@4.16.0/dist/tf.min.js"></script>
     <style>
-        body { font-family: Arial, sans-serif; max-width: 1200px; margin: 0 auto; padding: 20px; }
-        .container { display: grid; grid-template-columns: 1fr 1fr; gap: 20px; margin-top: 20px; }
-        .panel { border: 1px solid #ccc; padding: 15px; border-radius: 5px; }
-        #trainingProgress { height: 200px; overflow-y: auto; }
-        .progress-item { margin: 5px 0; padding: 5px; border-radius: 3px; }
-        .progress-item:nth-child(even) { background: #f5f5f5; }
-        #resultsCanvas { width: 100%; height: 300px; border: 1px solid #ccc; }
-        button { padding: 10px 15px; margin: 5px; cursor: pointer; }
-        input[type="file"] { margin: 10px 0; }
-        .error { color: red; }
-        .success { color: green; }
-        .info { color: blue; }
-        .warning { color: orange; }
+        body { 
+            font-family: Arial, sans-serif; 
+            max-width: 1200px; 
+            margin: 0 auto; 
+            padding: 20px; 
+            line-height: 1.6;
+        }
+        .container { 
+            display: grid; 
+            grid-template-columns: 1fr 1fr; 
+            gap: 20px; 
+            margin-top: 20px; 
+        }
+        @media (max-width: 768px) {
+            .container {
+                grid-template-columns: 1fr;
+            }
+        }
+        .panel { 
+            border: 1px solid #ccc; 
+            padding: 15px; 
+            border-radius: 5px; 
+            background: #fafafa;
+        }
+        #trainingProgress { 
+            height: 200px; 
+            overflow-y: auto; 
+            border: 1px solid #ddd;
+            padding: 10px;
+            background: white;
+        }
+        .progress-item { 
+            margin: 5px 0; 
+            padding: 5px; 
+            border-radius: 3px; 
+            font-size: 0.9em;
+        }
+        .progress-item:nth-child(even) { 
+            background: #f5f5f5; 
+        }
+        #resultsCanvas { 
+            width: 100%; 
+            height: 300px; 
+            border: 1px solid #ccc; 
+            background: white;
+        }
+        button { 
+            padding: 10px 15px; 
+            margin: 5px; 
+            cursor: pointer; 
+            background: #007cba;
+            color: white;
+            border: none;
+            border-radius: 4px;
+            font-size: 14px;
+        }
+        button:hover {
+            background: #005a87;
+        }
+        button:disabled {
+            background: #ccc;
+            cursor: not-allowed;
+        }
+        input[type="file"] { 
+            margin: 10px 0; 
+            padding: 5px;
+        }
+        .error { 
+            color: #d32f2f; 
+            background: #ffebee;
+            padding: 10px;
+            border-radius: 4px;
+            border-left: 4px solid #d32f2f;
+        }
+        .success { 
+            color: #2e7d32; 
+            background: #e8f5e9;
+            padding: 10px;
+            border-radius: 4px;
+            border-left: 4px solid #2e7d32;
+        }
+        .info { 
+            color: #1976d2; 
+            background: #e3f2fd;
+            padding: 10px;
+            border-radius: 4px;
+            border-left: 4px solid #1976d2;
+        }
+        .warning { 
+            color: #f57c00; 
+            background: #fff3e0;
+            padding: 10px;
+            border-radius: 4px;
+            border-left: 4px solid #f57c00;
+        }
         
         /* Process Window Styles */
         #processWindow { 
@@ -26,7 +108,8 @@
             top: 50%; 
             left: 50%; 
             transform: translate(-50%, -50%); 
-            width: 400px; 
+            width: 90%;
+            max-width: 500px;
             background: white; 
             border: 2px solid #333; 
             border-radius: 10px; 
@@ -35,7 +118,12 @@
             z-index: 1000;
             display: none;
         }
-        #processWindow h3 { margin-top: 0; color: #333; }
+        #processWindow h3 { 
+            margin-top: 0; 
+            color: #333; 
+            border-bottom: 1px solid #eee;
+            padding-bottom: 10px;
+        }
         #processContent { 
             height: 200px; 
             overflow-y: auto; 
@@ -43,16 +131,33 @@
             padding: 10px; 
             margin: 10px 0;
             background: #f9f9f9;
+            font-family: monospace;
+            font-size: 0.85em;
         }
         .process-step { 
             margin: 8px 0; 
-            padding: 5px; 
+            padding: 8px; 
             border-left: 3px solid #007cba; 
             background: white;
+            border-radius: 0 4px 4px 0;
         }
-        .process-step.completed { border-left-color: #4CAF50; background: #f0fff0; }
-        .process-step.error { border-left-color: #ff5252; background: #fff0f0; }
-        .process-step.active { border-left-color: #ff9800; background: #fff9e6; font-weight: bold; }
+        .process-step.completed { 
+            border-left-color: #4CAF50; 
+            background: #f0fff0; 
+        }
+        .process-step.error { 
+            border-left-color: #ff5252; 
+            background: #fff0f0; 
+        }
+        .process-step.warning { 
+            border-left-color: #ff9800; 
+            background: #fff9e6; 
+        }
+        .process-step.active { 
+            border-left-color: #2196F3; 
+            background: #f0f8ff; 
+            font-weight: bold; 
+        }
         #processProgress { 
             width: 100%; 
             height: 20px; 
@@ -66,15 +171,20 @@
             background: linear-gradient(90deg, #4CAF50, #45a049); 
             width: 0%; 
             transition: width 0.3s ease;
+            border-radius: 10px;
         }
         #closeProcessWindow { 
             float: right; 
             background: #ff5252; 
             color: white; 
             border: none; 
-            padding: 5px 10px; 
-            border-radius: 3px; 
+            padding: 8px 12px; 
+            border-radius: 4px; 
             cursor: pointer;
+            font-size: 16px;
+        }
+        #closeProcessWindow:hover {
+            background: #d32f2f;
         }
         #processOverlay {
             position: fixed;
@@ -86,12 +196,19 @@
             z-index: 999;
             display: none;
         }
+        .file-info {
+            background: #e3f2fd;
+            padding: 10px;
+            border-radius: 4px;
+            margin: 10px 0;
+            border-left: 4px solid #2196F3;
+        }
     </style>
 </head>
 <body>
     <div id="processOverlay"></div>
     <div id="processWindow">
-        <button id="closeProcessWindow">×</button>
+        <button id="closeProcessWindow" title="Close">×</button>
         <h3>Process Status</h3>
         <div id="processContent"></div>
         <div id="processProgress">
@@ -100,17 +217,22 @@
         <div id="processStatus">Ready to start...</div>
     </div>
 
-    <h1>Browser-Based Fraud Detection Demo</h1>
-    <p>Upload a CSV file with columns: step, amount, oldbalanceOrg, newbalanceOrig, oldbalanceDest, newbalanceDest, isFraud</p>
+    <header>
+        <h1>Browser-Based Fraud Detection Demo</h1>
+        <p>Upload a CSV file with columns: <code>step, amount, oldbalanceOrg, newbalanceOrig, oldbalanceDest, newbalanceDest, isFraud</code></p>
+    </header>
     
     <div class="container">
         <div class="panel">
             <h3>Data Input & Training</h3>
-            <input type="file" id="csvFile" accept=".csv">
+            <div class="file-info">
+                <label for="csvFile"><strong>Select CSV File:</strong></label>
+                <input type="file" id="csvFile" accept=".csv">
+            </div>
             <div>
-                <button id="loadData">Load & Preprocess Data</button>
-                <button id="trainModel">Train Model</button>
-                <button id="evaluateModel">Evaluate Model</button>
+                <button id="loadData">1. Load & Preprocess Data</button>
+                <button id="trainModel" disabled>2. Train Model</button>
+                <button id="evaluateModel" disabled>3. Evaluate Model</button>
             </div>
             <div id="dataInfo"></div>
             <div id="trainingProgress">
@@ -123,10 +245,19 @@
             <h3>Results & Visualization</h3>
             <div id="modelInfo"></div>
             <div id="evaluationResults"></div>
-            <canvas id="resultsCanvas"></canvas>
+            <canvas id="resultsCanvas" width="800" height="400">
+                Your browser does not support the canvas element.
+            </canvas>
         </div>
     </div>
 
+    <footer style="margin-top: 30px; padding-top: 20px; border-top: 1px solid #ccc; text-align: center; color: #666;">
+        <p>Fraud Detection Demo - Built with TensorFlow.js - Runs 100% in Browser</p>
+    </footer>
+
+    <!-- Include JavaScript modules -->
+    <script type="module" src="data-loader.js"></script>
+    <script type="module" src="module.js"></script>
     <script type="module" src="app.js"></script>
 </body>
 </html>
