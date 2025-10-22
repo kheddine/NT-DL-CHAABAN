@@ -4,7 +4,7 @@
 <head>
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
-    <title>COVID-19 X-ray Classifier</title>
+    <title>MNIST Classifier - TensorFlow.js</title>
     <script src="https://cdn.jsdelivr.net/npm/@tensorflow/tfjs@latest"></script>
     <script src="https://cdn.jsdelivr.net/npm/@tensorflow/tfjs-vis@latest"></script>
     <style>
@@ -12,127 +12,284 @@
             box-sizing: border-box;
             margin: 0;
             padding: 0;
-            font-family: Arial, sans-serif;
+            font-family: 'Segoe UI', Tahoma, Geneva, Verdana, sans-serif;
         }
         
         body {
             padding: 20px;
-            background-color: #f5f5f5;
+            background: linear-gradient(135deg, #667eea 0%, #764ba2 100%);
+            min-height: 100vh;
         }
         
         .container {
             display: grid;
             grid-template-columns: 1fr 1fr;
             gap: 20px;
-            max-width: 1200px;
+            max-width: 1400px;
             margin: 0 auto;
         }
         
-        @media (max-width: 768px) {
+        @media (max-width: 1024px) {
             .container {
                 grid-template-columns: 1fr;
             }
         }
         
         .column {
-            background: white;
-            padding: 20px;
-            border-radius: 8px;
-            box-shadow: 0 2px 10px rgba(0,0,0,0.1);
+            background: rgba(255, 255, 255, 0.95);
+            padding: 25px;
+            border-radius: 15px;
+            box-shadow: 0 8px 32px rgba(0, 0, 0, 0.1);
+            backdrop-filter: blur(10px);
         }
         
-        h1, h2, h3 {
+        h1 {
+            text-align: center;
+            color: white;
+            margin-bottom: 20px;
+            font-size: 2.5em;
+            text-shadow: 2px 2px 4px rgba(0, 0, 0, 0.3);
+        }
+        
+        h2 {
             color: #333;
-            margin-bottom: 15px;
+            margin-bottom: 20px;
+            border-bottom: 2px solid #667eea;
+            padding-bottom: 10px;
+        }
+        
+        h3 {
+            color: #555;
+            margin: 15px 0 10px 0;
         }
         
         .section {
             margin-bottom: 25px;
-            padding-bottom: 20px;
-            border-bottom: 1px solid #eee;
+            padding: 20px;
+            background: white;
+            border-radius: 10px;
+            box-shadow: 0 4px 15px rgba(0, 0, 0, 0.05);
+        }
+        
+        .file-input-group {
+            margin: 15px 0;
+        }
+        
+        label {
+            display: block;
+            margin-bottom: 8px;
+            font-weight: 600;
+            color: #444;
         }
         
         input[type="file"] {
-            margin: 10px 0;
-            padding: 8px;
-            border: 1px solid #ddd;
-            border-radius: 4px;
             width: 100%;
+            padding: 12px;
+            border: 2px dashed #667eea;
+            border-radius: 8px;
+            background: #f8f9ff;
+            margin-bottom: 10px;
+            transition: all 0.3s ease;
+        }
+        
+        input[type="file"]:hover {
+            border-color: #764ba2;
+            background: #f0f2ff;
+        }
+        
+        .button-group {
+            display: flex;
+            flex-wrap: wrap;
+            gap: 10px;
+            margin: 15px 0;
         }
         
         button {
-            background-color: #4CAF50;
+            background: linear-gradient(135deg, #667eea, #764ba2);
             color: white;
-            padding: 10px 15px;
+            padding: 12px 20px;
             border: none;
-            border-radius: 4px;
+            border-radius: 8px;
             cursor: pointer;
-            margin: 5px 5px 5px 0;
             font-size: 14px;
+            font-weight: 600;
+            transition: all 0.3s ease;
+            flex: 1;
+            min-width: 120px;
         }
         
         button:hover {
-            background-color: #45a049;
+            transform: translateY(-2px);
+            box-shadow: 0 6px 20px rgba(102, 126, 234, 0.4);
         }
         
         button:disabled {
-            background-color: #cccccc;
+            background: #cccccc;
             cursor: not-allowed;
+            transform: none;
+            box-shadow: none;
+        }
+        
+        button.secondary {
+            background: linear-gradient(135deg, #6c757d, #495057);
+        }
+        
+        button.success {
+            background: linear-gradient(135deg, #28a745, #20c997);
+        }
+        
+        button.warning {
+            background: linear-gradient(135deg, #ffc107, #fd7e14);
+        }
+        
+        button.danger {
+            background: linear-gradient(135deg, #dc3545, #c82333);
         }
         
         .status-panel {
-            background-color: #f8f9fa;
-            padding: 15px;
-            border-radius: 4px;
-            margin: 10px 0;
+            background: linear-gradient(135deg, #f8f9fa, #e9ecef);
+            padding: 20px;
+            border-radius: 10px;
+            border-left: 4px solid #667eea;
+            margin: 15px 0;
             font-size: 14px;
+            line-height: 1.6;
+        }
+        
+        .status-panel.success {
+            border-left-color: #28a745;
+            background: linear-gradient(135deg, #d4edda, #c3e6cb);
+        }
+        
+        .status-panel.warning {
+            border-left-color: #ffc107;
+            background: linear-gradient(135deg, #fff3cd, #ffeaa7);
+        }
+        
+        .status-panel.error {
+            border-left-color: #dc3545;
+            background: linear-gradient(135deg, #f8d7da, #f5c6cb);
         }
         
         #training-charts {
             margin: 20px 0;
             min-height: 300px;
+            background: white;
+            border-radius: 10px;
+            padding: 15px;
+            border: 1px solid #e9ecef;
         }
         
-        #test-image-preview {
-            max-width: 200px;
-            max-height: 200px;
-            margin: 10px 0;
-            border: 1px solid #ddd;
-            border-radius: 4px;
+        .preview-container {
+            display: flex;
+            justify-content: center;
+            gap: 15px;
+            margin: 20px 0;
+            flex-wrap: wrap;
         }
         
-        #prediction-result {
-            font-size: 18px;
+        .preview-item {
+            text-align: center;
+            background: white;
+            padding: 15px;
+            border-radius: 10px;
+            box-shadow: 0 4px 15px rgba(0, 0, 0, 0.1);
+            transition: transform 0.3s ease;
+        }
+        
+        .preview-item:hover {
+            transform: translateY(-5px);
+        }
+        
+        .preview-canvas {
+            border: 2px solid #e9ecef;
+            border-radius: 8px;
+            margin-bottom: 10px;
+        }
+        
+        .prediction-label {
             font-weight: bold;
-            margin: 15px 0;
-            padding: 10px;
-            border-radius: 4px;
+            font-size: 16px;
+            padding: 5px 10px;
+            border-radius: 5px;
         }
         
-        .pneumonia {
-            background-color: #ffebee;
-            color: #c62828;
+        .prediction-correct {
+            background-color: #d4edda;
+            color: #155724;
         }
         
-        .normal {
-            background-color: #e8f5e8;
-            color: #2e7d32;
+        .prediction-incorrect {
+            background-color: #f8d7da;
+            color: #721c24;
         }
         
         .model-summary {
-            font-family: monospace;
+            font-family: 'Courier New', monospace;
             font-size: 12px;
-            background-color: #f5f5f5;
-            padding: 10px;
-            border-radius: 4px;
+            background: #1e1e1e;
+            color: #d4d4d4;
+            padding: 15px;
+            border-radius: 8px;
             overflow-x: auto;
             white-space: pre;
+            line-height: 1.4;
+        }
+        
+        .metrics-grid {
+            display: grid;
+            grid-template-columns: repeat(auto-fit, minmax(200px, 1fr));
+            gap: 15px;
+            margin: 20px 0;
+        }
+        
+        .metric-card {
+            background: linear-gradient(135deg, #667eea, #764ba2);
+            color: white;
+            padding: 20px;
+            border-radius: 10px;
+            text-align: center;
+        }
+        
+        .metric-value {
+            font-size: 2em;
+            font-weight: bold;
+            margin: 10px 0;
+        }
+        
+        .metric-label {
+            font-size: 0.9em;
+            opacity: 0.9;
+        }
+        
+        .hidden {
+            display: none;
+        }
+        
+        .loading {
+            opacity: 0.7;
+            pointer-events: none;
+        }
+        
+        .spinner {
+            border: 3px solid #f3f3f3;
+            border-top: 3px solid #667eea;
+            border-radius: 50%;
+            width: 20px;
+            height: 20px;
+            animation: spin 1s linear infinite;
+            display: inline-block;
+            margin-right: 10px;
+        }
+        
+        @keyframes spin {
+            0% { transform: rotate(0deg); }
+            100% { transform: rotate(360deg); }
         }
     </style>
 </head>
 <body>
-    <h1>COVID-19 X-ray Classifier</h1>
-    <p>Train and test a CNN model directly in your browser to classify chest X-rays</p>
+    <h1>MNIST Handwritten Digit Classifier</h1>
     
     <div class="container">
         <!-- Left Column: Training Section -->
@@ -140,66 +297,81 @@
             <h2>Training Section</h2>
             
             <div class="section">
-                <h3>1. Upload Training Data</h3>
-                <label>Upload Pneumonia Images:</label>
-                <input type="file" id="pneumonia-files" multiple accept="image/jpeg,image/png,image/jpg">
-                
-                <label>Upload Normal Images:</label>
-                <input type="file" id="normal-files" multiple accept="image/jpeg,image/png,image/jpg">
-                
-                <button onclick="onLoadData()">Load & Preprocess Data</button>
+                <h3>1. Upload MNIST Data</h3>
+                <div class="file-input-group">
+                    <label for="train-file">Upload Training CSV (mnist_train.csv):</label>
+                    <input type="file" id="train-file" accept=".csv">
+                </div>
+                <div class="file-input-group">
+                    <label for="test-file">Upload Test CSV (mnist_test.csv):</label>
+                    <input type="file" id="test-file" accept=".csv">
+                </div>
+                <button onclick="onLoadData()" class="success">Load Data</button>
             </div>
             
             <div class="section">
                 <h3>2. Data Status</h3>
                 <div class="status-panel" id="data-status">
-                    No data loaded. Please upload images and click "Load & Preprocess Data".
+                    No data loaded. Please upload MNIST CSV files and click "Load Data".
                 </div>
             </div>
             
             <div class="section">
                 <h3>3. Model Training</h3>
-                <button onclick="onTrain()">Train Model</button>
-                <button onclick="onSaveModel()">Save Model (Download)</button>
-                <button onclick="document.getElementById('model-upload').click()">Load Model (From Files)</button>
-                <input type="file" id="model-upload" accept=".json,.bin" style="display: none;" onchange="onLoadModel(event)" multiple>
-                
-                <div id="training-progress" class="status-panel" style="display: none;">
-                    Training in progress...
+                <div class="button-group">
+                    <button onclick="onTrain()" class="success">Train Model</button>
+                    <button onclick="onEvaluate()" class="warning">Evaluate Model</button>
+                    <button onclick="onTestFive()" class="secondary">Test 5 Random</button>
+                </div>
+                <div id="training-progress" class="status-panel hidden">
+                    <!-- Training progress will be displayed here -->
                 </div>
             </div>
             
             <div class="section">
                 <h3>4. Training Charts</h3>
-                <div id="training-charts"></div>
-            </div>
-            
-            <div class="section">
-                <h3>5. Model Summary</h3>
-                <div id="model-summary" class="model-summary">
-                    No model loaded. Train a new model or load an existing one.
+                <div id="training-charts">
+                    Training charts will appear here once training starts...
                 </div>
             </div>
         </div>
         
-        <!-- Right Column: Testing Section -->
+        <!-- Right Column: Testing & Model Management -->
         <div class="column">
-            <h2>Testing Section</h2>
+            <h2>Testing & Model Management</h2>
             
             <div class="section">
-                <h3>1. Upload Test Image</h3>
-                <input type="file" id="test-image" accept="image/jpeg,image/png,image/jpg">
-                <button onclick="onPredict()">Predict</button>
-                
-                <div id="test-image-container">
-                    <img id="test-image-preview" style="display: none;">
+                <h3>1. Model Operations</h3>
+                <div class="button-group">
+                    <button onclick="onSaveModel()" class="success">Save Model (Download)</button>
+                    <button onclick="document.getElementById('model-files').click()" class="secondary">Load Model (From Files)</button>
+                    <button onclick="onReset()" class="danger">Reset</button>
+                    <button onclick="tfvis.visor().toggle()" class="secondary">Toggle Visor</button>
+                </div>
+                <input type="file" id="model-files" accept=".json,.bin" style="display: none;" onchange="onLoadModel(event)" multiple>
+            </div>
+            
+            <div class="section">
+                <h3>2. Model Performance</h3>
+                <div class="metrics-grid" id="metrics-display">
+                    <!-- Metrics will be populated here -->
+                </div>
+                <div id="evaluation-results" class="status-panel hidden">
+                    <!-- Evaluation results will be displayed here -->
                 </div>
             </div>
             
             <div class="section">
-                <h3>2. Prediction Result</h3>
-                <div id="prediction-result">
-                    Upload an image and click "Predict" to see results.
+                <h3>3. Random Test Preview</h3>
+                <div class="preview-container" id="test-preview">
+                    <!-- 5 random test images will be displayed here -->
+                </div>
+            </div>
+            
+            <div class="section">
+                <h3>4. Model Architecture</h3>
+                <div id="model-summary" class="model-summary">
+                    No model loaded. Train a new model or load an existing one.
                 </div>
             </div>
         </div>
