@@ -7,7 +7,6 @@ let isTraining = false;
 let currentMetrics = {
     trainAccuracy: 0,
     valAccuracy: 0,
-    testAccuracy: 0,
     trainingTime: 0
 };
 
@@ -16,99 +15,125 @@ const dataStatusEl = document.getElementById('data-status');
 const trainingProgressEl = document.getElementById('training-progress');
 const trainingChartsEl = document.getElementById('training-charts');
 const modelSummaryEl = document.getElementById('model-summary');
-const testPreviewEl = document.getElementById('test-preview');
-const evaluationResultsEl = document.getElementById('evaluation-results');
+const testImagePreviewEl = document.getElementById('test-image-preview');
+const predictionResultEl = document.getElementById('prediction-result');
 const metricsDisplayEl = document.getElementById('metrics-display');
+const samplePredictionsEl = document.getElementById('sample-predictions');
 
 /**
  * Initialize the application when DOM is loaded
  */
 document.addEventListener('DOMContentLoaded', function() {
-    console.log('MNIST Classifier initialized');
+    console.log('COVID-19 X-ray Classifier initialized');
     updateMetricsDisplay();
     initializeModelSummary();
 });
 
 /**
- * Load and preprocess MNIST data from uploaded CSV files
+ * Load and preprocess training data from uploaded files
  */
 async function onLoadData() {
-    const trainFileInput = document.getElementById('train-file');
-    const testFileInput = document.getElementById('test-file');
-    
-    const trainFile = trainFileInput.files[0];
-    const testFile = testFileInput.files[0];
-    
-    if (!trainFile && !testFile) {
-        alert('Please upload at least one CSV file (train or test)');
+    const pneumoniaFiles = document.getElementById('pneumonia-files').files;
+    const normalFiles = document.getElementById('normal-files').files;
+
+    if (pneumoniaFiles.length === 0 && normalFiles.length === 0) {
+        alert('Please upload at least one image for pneumonia or normal class');
         return;
     }
-    
+
     try {
         // Show loading state
         dataStatusEl.className = 'status-panel warning';
-        dataStatusEl.innerHTML = '<div class="spinner"></div>Loading and preprocessing data...';
+        dataStatusEl.innerHTML = '<div class="spinner"></div>Loading and preprocessing X-ray images...';
         
         // Clear previous data
         disposeData();
         
-        // Load training data if provided
-        if (trainFile) {
-            await loadTrainFromFiles(trainFile);
-            
-            // Split training data into train/validation sets
-            const { trainXs, trainYs, valXs, valYs } = splitTrainVal(
-                mnistData.train.xs, 
-                mnistData.train.ys, 
-                0.1
-            );
-            
-            // Update data storage
-            mnistData.train.xs = trainXs;
-            mnistData.train.ys = trainYs;
-            mnistData.validation.xs = valXs;
-            mnistData.validation.ys = valYs;
-        }
+        // Prepare training data
+        const { xs, ys } = await prepareTrainingData(pneumoniaFiles, normalFiles);
         
-        // Load test data if provided
-        if (testFile) {
-            await loadTestFromFiles(testFile);
-        }
+        // Store in global variable
+        trainingData.xs = xs;
+        trainingData.ys = ys;
+        trainingData.pneumoniaFiles = pneumoniaFiles;
+        trainingData.normalFiles = normalFiles;
         
         // Update UI with data statistics
-        const stats = getDataStats();
+        const stats = getTrainingDataStats();
         let statusHTML = '<strong>Data Loaded Successfully!</strong><br>';
         
-        if (stats.trainSamples > 0) {
-            statusHTML += `Training samples: ${stats.trainSamples.toLocaleString()}<br>`;
-            statusHTML += `Validation samples: ${stats.validationSamples.toLocaleString()}<br>`;
-        }
-        if (stats.testSamples > 0) {
-            statusHTML += `Test samples: ${stats.testSamples.toLocaleString()}<br>`;
-        }
-        
-        statusHTML += '<small>Images normalized to [0,1] and reshaped to 28×28×1</small>';
+        statusHTML += `Pneumonia X-rays: ${stats.pneumoniaCount}<br>`;
+        statusHTML += `Normal X-rays: ${stats.normalCount}<br>`;
+        statusHTML += `Total samples: ${stats.totalSamples}<br>`;
+        statusHTML += `<small>Images resized to 128×128 pixels and normalized to [0,1]</small>`;
         
         dataStatusEl.className = 'status-panel success';
         dataStatusEl.innerHTML = statusHTML;
         
-        console.log('MNIST data loaded:', stats);
+        console.log('Training data prepared:', stats);
         
-        // Enable training button if training data is available
-        updateButtonStates();
+        // Show sample images
+        showSampleTrainingImages();
         
     } catch (error) {
-        console.error('Error loading data:', error);
+        console.error('Error loading training data:', error);
         dataStatusEl.className = 'status-panel error';
         dataStatusEl.innerHTML = `<strong>Error loading data:</strong> ${error.message}`;
     }
 }
 
 /**
+ * Show sample training images in the UI
+ */
+function showSampleTrainingImages() {
+    samplePredictionsEl.innerHTML = '<h4>Sample Training Images:</h4>';
+    
+    tf.tidy(() => {
+        // Take up to 3 samples from each class
+        const sampleSize = Math.min(3, Math.floor(trainingData.xs.shape[0] / 2));
+        
+        for (let i = 0; i < sampleSize; i++) {
+            // Get a pneumonia sample
+            const pneumoniaSample = trainingData.xs.slice([i, 0, 0, 0], [1, 128, 128, 3]);
+            createImagePreview(pneumoniaSample, 'Pneumonia', true);
+            
+            // Get a normal sample
+            const normalIndex = i + Math.floor(trainingData.xs.shape[0] / 2);
+            const normalSample = trainingData.xs.slice([normalIndex, 0, 0, 0], [1, 128, 128, 3]);
+            createImagePreview(normalSample, 'Normal', false);
+        }
+    });
+}
+
+/**
+ * Create image preview element
+ */
+function createImagePreview(tensor, label, isPneumonia) {
+    const previewItem = document.createElement('div');
+    previewItem.className = 'preview-item';
+    
+    const canvas = document.createElement('canvas');
+    canvas.className = 'preview-canvas';
+    canvas.width = 128;
+    canvas.height = 128;
+    
+    const labelDiv = document.createElement('div');
+    labelDiv.className = `prediction-label ${isPneumonia ? 'pneumonia' : 'normal'}`;
+    labelDiv.textContent = label;
+    
+    // Draw image to canvas
+    tf.browser.toPixels(tensor.squeeze(), canvas);
+    
+    previewItem.appendChild(canvas);
+    previewItem.appendChild(labelDiv);
+    samplePredictionsEl.appendChild(previewItem);
+}
+
+/**
  * Create and train the CNN model
  */
 async function onTrain() {
-    if (!mnistData.train.xs) {
+    if (!trainingData.xs) {
         alert('Please load training data first');
         return;
     }
@@ -132,6 +157,20 @@ async function onTrain() {
         // Clear previous charts
         trainingChartsEl.innerHTML = '';
         
+        // Split data for validation
+        const numSamples = trainingData.xs.shape[0];
+        const numVal = Math.floor(numSamples * 0.2);
+        const numTrain = numSamples - numVal;
+        
+        const indices = tf.util.createShuffledIndices(numSamples);
+        const trainIndices = indices.slice(0, numTrain);
+        const valIndices = indices.slice(numTrain);
+        
+        const trainXs = tf.gather(trainingData.xs, trainIndices);
+        const trainYs = tf.gather(trainingData.ys, trainIndices);
+        const valXs = tf.gather(trainingData.xs, valIndices);
+        const valYs = tf.gather(trainingData.ys, valIndices);
+        
         // Prepare training callbacks for live visualization
         const callbacks = tfvis.show.fitCallbacks(
             trainingChartsEl,
@@ -145,9 +184,9 @@ async function onTrain() {
         
         // Training configuration
         const trainingConfig = {
-            epochs: 8,
-            batchSize: 128,
-            validationData: [mnistData.validation.xs, mnistData.validation.ys],
+            epochs: 10,
+            batchSize: 16,
+            validationData: [valXs, valYs],
             shuffle: true,
             callbacks: callbacks
         };
@@ -158,11 +197,7 @@ async function onTrain() {
         const startTime = Date.now();
         
         // Train the model
-        const history = await model.fit(
-            mnistData.train.xs, 
-            mnistData.train.ys, 
-            trainingConfig
-        );
+        const history = await model.fit(trainXs, trainYs, trainingConfig);
         
         const trainingTime = ((Date.now() - startTime) / 1000).toFixed(1);
         trainingHistory = history;
@@ -194,6 +229,12 @@ async function onTrain() {
         updateMetricsDisplay();
         updateModelSummary();
         
+        // Clean up tensors
+        trainXs.dispose();
+        trainYs.dispose();
+        valXs.dispose();
+        valYs.dispose();
+        
     } catch (error) {
         console.error('Error during training:', error);
         trainingProgressEl.className = 'status-panel error';
@@ -204,188 +245,7 @@ async function onTrain() {
 }
 
 /**
- * Evaluate the model on test data
- */
-async function onEvaluate() {
-    if (!model) {
-        alert('No model available. Please train or load a model first.');
-        return;
-    }
-    
-    if (!mnistData.test.xs) {
-        alert('No test data available. Please load test CSV file.');
-        return;
-    }
-    
-    try {
-        evaluationResultsEl.style.display = 'block';
-        evaluationResultsEl.className = 'status-panel warning';
-        evaluationResultsEl.innerHTML = '<div class="spinner"></div>Evaluating model on test data...';
-        
-        console.log('Starting model evaluation...');
-        
-        // Make predictions on test data
-        const predictions = model.predict(mnistData.test.xs);
-        const predictedClasses = predictions.argMax(-1);
-        const trueClasses = mnistData.test.ys.argMax(-1);
-        
-        // Calculate accuracy
-        const accuracy = tf.tidy(() => {
-            const correctPredictions = predictedClasses.equal(trueClasses);
-            return correctPredictions.mean().dataSync()[0];
-        });
-        
-        // Calculate confusion matrix
-        const confusionMatrix = await tfvis.metrics.confusionMatrix(trueClasses, predictedClasses);
-        
-        // Calculate per-class accuracy
-        const classAccuracy = [];
-        const numClasses = 10;
-        
-        for (let i = 0; i < numClasses; i++) {
-            const classMask = trueClasses.equal(i);
-            const classPredictions = tf.booleanMask(predictedClasses, classMask);
-            const classCorrect = classPredictions.equal(i);
-            const accuracy = classCorrect.mean().dataSync()[0];
-            classAccuracy.push(accuracy);
-        }
-        
-        // Update global metrics
-        currentMetrics.testAccuracy = accuracy;
-        
-        // Display results
-        evaluationResultsEl.className = 'status-panel success';
-        evaluationResultsEl.innerHTML = `
-            <strong>Evaluation Completed!</strong><br>
-            Test Accuracy: ${(accuracy * 100).toFixed(2)}%<br>
-            <small>Model evaluated on ${mnistData.test.xs.shape[0].toLocaleString()} test samples</small>
-        `;
-        
-        // Visualize results in tfjs-vis visor
-        const surface = { name: 'Model Evaluation', tab: 'Evaluation' };
-        
-        // Show confusion matrix
-        tfvis.render.confusionMatrix(surface, {
-            values: confusionMatrix,
-            tickLabels: ['0', '1', '2', '3', '4', '5', '6', '7', '8', '9']
-        });
-        
-        // Show per-class accuracy
-        const accuracySurface = { name: 'Per-Class Accuracy', tab: 'Evaluation' };
-        tfvis.render.barchart(accuracySurface, classAccuracy.map((acc, i) => ({
-            index: i,
-            value: acc,
-            color: acc > 0.8 ? '#28a745' : acc > 0.6 ? '#ffc107' : '#dc3545'
-        })), {
-            xLabel: 'Digit',
-            yLabel: 'Accuracy',
-            yAxisDomain: [0, 1]
-        });
-        
-        console.log(`Evaluation completed. Test accuracy: ${(accuracy * 100).toFixed(2)}%`);
-        
-        // Update metrics display
-        updateMetricsDisplay();
-        
-        // Clean up tensors
-        predictions.dispose();
-        predictedClasses.dispose();
-        trueClasses.dispose();
-        
-    } catch (error) {
-        console.error('Error during evaluation:', error);
-        evaluationResultsEl.className = 'status-panel error';
-        evaluationResultsEl.innerHTML = `<strong>Evaluation failed:</strong> ${error.message}`;
-    }
-}
-
-/**
- * Test 5 random samples and display predictions
- */
-async function onTestFive() {
-    if (!model) {
-        alert('No model available. Please train or load a model first.');
-        return;
-    }
-    
-    if (!mnistData.test.xs) {
-        alert('No test data available. Please load test CSV file.');
-        return;
-    }
-    
-    try {
-        // Get random batch of test samples
-        const { samples, labels, indices } = getRandomTestBatch(
-            mnistData.test.xs, 
-            mnistData.test.ys, 
-            5
-        );
-        
-        // Make predictions
-        const predictions = model.predict(samples);
-        const predictedClasses = predictions.argMax(-1);
-        const trueClasses = labels.argMax(-1);
-        
-        // Get prediction probabilities
-        const probabilities = predictions.dataSync();
-        const predictedArray = await predictedClasses.array();
-        const trueArray = await trueClasses.array();
-        
-        // Clear previous preview
-        testPreviewEl.innerHTML = '';
-        
-        // Display each sample with prediction
-        for (let i = 0; i < 5; i++) {
-            const previewItem = document.createElement('div');
-            previewItem.className = 'preview-item';
-            
-            const canvas = document.createElement('canvas');
-            canvas.className = 'preview-canvas';
-            
-            const labelDiv = document.createElement('div');
-            labelDiv.className = 'prediction-label';
-            
-            // Get the image tensor for this sample
-            const sampleTensor = samples.slice([i, 0, 0, 0], [1, 28, 28, 1]);
-            
-            // Draw image to canvas
-            draw28x28ToCanvas(sampleTensor, canvas, 4);
-            
-            // Determine if prediction is correct
-            const isCorrect = predictedArray[i] === trueArray[i];
-            const confidence = probabilities[i * 10 + predictedArray[i]];
-            
-            labelDiv.textContent = `Pred: ${predictedArray[i]} (${(confidence * 100).toFixed(1)}%)`;
-            labelDiv.className = `prediction-label ${isCorrect ? 'prediction-correct' : 'prediction-incorrect'}`;
-            
-            // Add true label as tooltip
-            previewItem.title = `True label: ${trueArray[i]}`;
-            
-            previewItem.appendChild(canvas);
-            previewItem.appendChild(labelDiv);
-            testPreviewEl.appendChild(previewItem);
-            
-            // Clean up sample tensor
-            sampleTensor.dispose();
-        }
-        
-        console.log('Displayed 5 random test predictions');
-        
-        // Clean up tensors
-        samples.dispose();
-        labels.dispose();
-        predictions.dispose();
-        predictedClasses.dispose();
-        trueClasses.dispose();
-        
-    } catch (error) {
-        console.error('Error during random test:', error);
-        testPreviewEl.innerHTML = `<div class="status-panel error">Error: ${error.message}</div>`;
-    }
-}
-
-/**
- * Create the CNN model architecture for MNIST classification
+ * Create the CNN model architecture for X-ray classification
  */
 function createModel() {
     // Clean up previous model if exists
@@ -400,42 +260,100 @@ function createModel() {
                 filters: 32,
                 kernelSize: 3,
                 activation: 'relu',
-                padding: 'same',
-                inputShape: [28, 28, 1]
+                inputShape: [128, 128, 3]
             }),
+            tf.layers.maxPooling2d({ poolSize: 2 }),
             
             // Second convolutional block
             tf.layers.conv2d({
                 filters: 64,
                 kernelSize: 3,
-                activation: 'relu',
-                padding: 'same'
+                activation: 'relu'
             }),
-            
-            // Pooling and regularization
             tf.layers.maxPooling2d({ poolSize: 2 }),
-            tf.layers.dropout({ rate: 0.25 }),
             
-            // Flatten for dense layers
+            // Third convolutional block
+            tf.layers.conv2d({
+                filters: 64,
+                kernelSize: 3,
+                activation: 'relu'
+            }),
+            tf.layers.maxPooling2d({ poolSize: 2 }),
+            
+            // Classification head
             tf.layers.flatten(),
-            
-            // Dense layers
             tf.layers.dense({ units: 128, activation: 'relu' }),
             tf.layers.dropout({ rate: 0.5 }),
-            
-            // Output layer (10 classes for digits 0-9)
-            tf.layers.dense({ units: 10, activation: 'softmax' })
+            tf.layers.dense({ units: 1, activation: 'sigmoid' })
         ]
     });
     
     // Compile the model
     model.compile({
         optimizer: 'adam',
-        loss: 'categoricalCrossentropy',
+        loss: 'binaryCrossentropy',
         metrics: ['accuracy']
     });
     
-    console.log('CNN model created and compiled for MNIST classification');
+    console.log('CNN model created and compiled for X-ray classification');
+}
+
+/**
+ * Make prediction on a test image
+ */
+async function onPredict() {
+    const testFileInput = document.getElementById('test-image');
+    const testFile = testFileInput.files[0];
+    
+    if (!testFile) {
+        alert('Please select a test X-ray image first');
+        return;
+    }
+    
+    if (!model) {
+        alert('No model available. Please train or load a model first.');
+        return;
+    }
+    
+    try {
+        predictionResultEl.className = 'status-panel warning';
+        predictionResultEl.innerHTML = '<div class="spinner"></div>Processing X-ray image...';
+        
+        // Load and preprocess test image
+        const testTensor = await loadTestImage(testFile);
+        
+        // Make prediction
+        const prediction = model.predict(testTensor);
+        const probability = await prediction.dataSync()[0];
+        
+        // Determine class and confidence
+        const isPneumonia = probability >= 0.5;
+        const className = isPneumonia ? 'Pneumonia' : 'Normal';
+        const confidence = isPneumonia ? probability : (1 - probability);
+        const confidencePercent = (confidence * 100).toFixed(1);
+        
+        // Display result
+        predictionResultEl.className = `status-panel ${isPneumonia ? 'error' : 'success'}`;
+        predictionResultEl.innerHTML = `
+            <strong>Prediction: ${className}</strong><br>
+            Confidence: ${confidencePercent}%<br>
+            <small>Probability score: ${probability.toFixed(4)}</small>
+        `;
+        
+        console.log(`Prediction: ${className} (${confidencePercent}% confidence)`);
+        
+        // Update metrics display with prediction info
+        updateMetricsDisplay(confidencePercent, className);
+        
+        // Clean up tensors
+        testTensor.dispose();
+        prediction.dispose();
+        
+    } catch (error) {
+        console.error('Error during prediction:', error);
+        predictionResultEl.className = 'status-panel error';
+        predictionResultEl.innerHTML = `<strong>Prediction failed:</strong> ${error.message}`;
+    }
 }
 
 /**
@@ -448,7 +366,7 @@ async function onSaveModel() {
     }
     
     try {
-        await model.save('downloads://mnist-cnn-model');
+        await model.save('downloads://covid-xray-cnn-model');
         console.log('Model saved successfully');
         alert('Model saved successfully! Check your downloads folder for model.json and weights.bin');
     } catch (error) {
@@ -484,13 +402,12 @@ async function onLoadModel(event) {
         // Recompile the model
         model.compile({
             optimizer: 'adam',
-            loss: 'categoricalCrossentropy',
+            loss: 'binaryCrossentropy',
             metrics: ['accuracy']
         });
         
         console.log('Model loaded successfully');
         updateModelSummary();
-        updateButtonStates();
         
         alert('Model loaded successfully!');
         
@@ -502,43 +419,6 @@ async function onLoadModel(event) {
     
     // Reset file input
     event.target.value = '';
-}
-
-/**
- * Reset the application - clear all data and model
- */
-function onReset() {
-    if (confirm('Are you sure you want to reset? This will clear all data and the current model.')) {
-        // Dispose tensors and model
-        if (model) {
-            model.dispose();
-            model = null;
-        }
-        disposeData();
-        
-        // Reset UI
-        dataStatusEl.className = 'status-panel';
-        dataStatusEl.textContent = 'No data loaded. Please upload MNIST CSV files and click "Load Data".';
-        
-        trainingProgressEl.style.display = 'none';
-        evaluationResultsEl.style.display = 'none';
-        trainingChartsEl.innerHTML = 'Training charts will appear here once training starts...';
-        testPreviewEl.innerHTML = '';
-        
-        // Reset metrics
-        currentMetrics = {
-            trainAccuracy: 0,
-            valAccuracy: 0,
-            testAccuracy: 0,
-            trainingTime: 0
-        };
-        
-        updateMetricsDisplay();
-        initializeModelSummary();
-        updateButtonStates();
-        
-        console.log('Application reset');
-    }
 }
 
 /**
@@ -571,8 +451,8 @@ function updateModelSummary() {
         summary += `\nTotal params: ${totalParams.toLocaleString()}\n`;
         summary += `Trainable params: ${trainableParams.toLocaleString()}\n`;
         summary += `Non-trainable params: ${(totalParams - trainableParams).toLocaleString()}\n\n`;
-        summary += `Input shape: [28, 28, 1]\n`;
-        summary += `Output shape: [10] (digits 0-9)`;
+        summary += `Input shape: [128, 128, 3]\n`;
+        summary += `Output: Pneumonia probability (0-1)`;
         
         modelSummaryEl.textContent = summary;
         
@@ -588,21 +468,23 @@ function updateModelSummary() {
 function initializeModelSummary() {
     const summary = `Model Architecture (when created):
 
- 1) conv2d              28, 28, 32              320 params
- 2) conv2d              28, 28, 64            18496 params
- 3) max_pooling2d       14, 14, 64                0 params
- 4) dropout             14, 14, 64                0 params
- 5) flatten                12544                  0 params
- 6) dense                  128              1605760 params
- 7) dropout                128                    0 params
- 8) dense                   10                1290 params
+ 1) conv2d              126, 126, 32            896 params
+ 2) max_pooling2d       63, 63, 32                0 params
+ 3) conv2d              61, 61, 64            18496 params
+ 4) max_pooling2d       30, 30, 64                0 params
+ 5) conv2d              28, 28, 64            36928 params
+ 6) max_pooling2d       14, 14, 64                0 params
+ 7) flatten                12544                  0 params
+ 8) dense                  128              1605760 params
+ 9) dropout                128                    0 params
+10) dense                   1                  129 params
 
-Total params: 1,625,866
-Trainable params: 1,625,866
+Total params: 1,662,209
+Trainable params: 1,662,209
 Non-trainable params: 0
 
-Input shape: [28, 28, 1]
-Output shape: [10] (digits 0-9)`;
+Input shape: [128, 128, 3]
+Output: Pneumonia probability (0-1)`;
     
     modelSummaryEl.textContent = summary;
 }
@@ -610,7 +492,7 @@ Output shape: [10] (digits 0-9)`;
 /**
  * Update the metrics display with current performance data
  */
-function updateMetricsDisplay() {
+function updateMetricsDisplay(confidence = null, className = null) {
     let metricsHTML = '';
     
     if (currentMetrics.trainAccuracy > 0) {
@@ -631,11 +513,13 @@ function updateMetricsDisplay() {
         `;
     }
     
-    if (currentMetrics.testAccuracy > 0) {
+    if (confidence !== null) {
+        const colorClass = className === 'Pneumonia' ? 'danger' : 'success';
         metricsHTML += `
-            <div class="metric-card">
-                <div class="metric-label">Test Accuracy</div>
-                <div class="metric-value">${(currentMetrics.testAccuracy * 100).toFixed(1)}%</div>
+            <div class="metric-card" style="background: linear-gradient(135deg, ${className === 'Pneumonia' ? '#dc3545, #c82333' : '#28a745, #20c997'});">
+                <div class="metric-label">Current Prediction</div>
+                <div class="metric-value">${confidence}%</div>
+                <div class="metric-label">${className}</div>
             </div>
         `;
     }
@@ -653,20 +537,9 @@ function updateMetricsDisplay() {
         <div class="metric-card">
             <div class="metric-label">No Metrics Yet</div>
             <div class="metric-value">-</div>
+            <div class="metric-label">Train model to see metrics</div>
         </div>
     `;
-}
-
-/**
- * Update button states based on available data and model
- */
-function updateButtonStates() {
-    const hasTrainData = mnistData.train.xs !== null;
-    const hasTestData = mnistData.test.xs !== null;
-    const hasModel = model !== null;
-    
-    // You can implement button enabling/disabling logic here if needed
-    console.log('UI state - Train data:', hasTrainData, 'Test data:', hasTestData, 'Model:', hasModel);
 }
 
 // Handle page unload to clean up memory
