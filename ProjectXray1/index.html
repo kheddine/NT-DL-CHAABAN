@@ -1,655 +1,211 @@
+<!-- index.html -->
 <!DOCTYPE html>
 <html lang="en">
 <head>
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
-    <title>COVID-19 Chest X-Ray Classifier - Educational Tool</title>
-    <script src="https://cdn.jsdelivr.net/npm/@tensorflow/tfjs@4.11.0/dist/tf.min.js"></script>
-    <script src="https://cdn.jsdelivr.net/npm/@tensorflow/tfjs-vis@1.5.1/dist/tfjs-vis.umd.min.js"></script>
+    <title>COVID-19 X-ray Classifier</title>
+    <script src="https://cdn.jsdelivr.net/npm/@tensorflow/tfjs@latest"></script>
+    <script src="https://cdn.jsdelivr.net/npm/@tensorflow/tfjs-vis@latest"></script>
     <style>
         * {
+            box-sizing: border-box;
             margin: 0;
             padding: 0;
-            box-sizing: border-box;
+            font-family: Arial, sans-serif;
         }
-
-        :root {
-            --primary-color: #2563eb;
-            --danger-color: #dc2626;
-            --success-color: #16a34a;
-            --warning-color: #ea580c;
-            --bg-primary: #ffffff;
-            --bg-secondary: #f8fafc;
-            --text-primary: #0f172a;
-            --text-secondary: #64748b;
-            --border-color: #e2e8f0;
-        }
-
+        
         body {
-            font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, 'Helvetica Neue', Arial, sans-serif;
-            background: var(--bg-secondary);
-            color: var(--text-primary);
-            line-height: 1.6;
+            padding: 20px;
+            background-color: #f5f5f5;
         }
-
-        .medical-disclaimer {
-            background: linear-gradient(135deg, #dc2626 0%, #991b1b 100%);
-            color: white;
-            padding: 1.5rem;
-            text-align: center;
-            font-weight: 600;
-            box-shadow: 0 4px 6px rgba(0, 0, 0, 0.1);
-            position: sticky;
-            top: 0;
-            z-index: 1000;
-        }
-
-        .medical-disclaimer h2 {
-            font-size: 1.25rem;
-            margin-bottom: 0.5rem;
-        }
-
-        .medical-disclaimer p {
-            font-size: 0.875rem;
-            opacity: 0.95;
-        }
-
+        
         .container {
-            max-width: 1400px;
+            display: grid;
+            grid-template-columns: 1fr 1fr;
+            gap: 20px;
+            max-width: 1200px;
             margin: 0 auto;
-            padding: 2rem;
         }
-
-        header {
-            text-align: center;
-            margin-bottom: 2rem;
-        }
-
-        header h1 {
-            font-size: 2.5rem;
-            color: var(--primary-color);
-            margin-bottom: 0.5rem;
-        }
-
-        header p {
-            color: var(--text-secondary);
-            font-size: 1.125rem;
-        }
-
-        .mode-selector {
-            display: flex;
-            gap: 1rem;
-            justify-content: center;
-            margin-bottom: 2rem;
-        }
-
-        .mode-btn {
-            padding: 1rem 2rem;
-            font-size: 1rem;
-            font-weight: 600;
-            border: 2px solid var(--border-color);
-            background: var(--bg-primary);
-            color: var(--text-primary);
-            border-radius: 0.5rem;
-            cursor: pointer;
-            transition: all 0.3s ease;
-        }
-
-        .mode-btn:hover {
-            border-color: var(--primary-color);
-            transform: translateY(-2px);
-            box-shadow: 0 4px 12px rgba(37, 99, 235, 0.2);
-        }
-
-        .mode-btn.active {
-            background: var(--primary-color);
-            color: white;
-            border-color: var(--primary-color);
-        }
-
-        .content-section {
-            display: none;
-            background: var(--bg-primary);
-            border-radius: 1rem;
-            padding: 2rem;
-            box-shadow: 0 1px 3px rgba(0, 0, 0, 0.1);
-            margin-bottom: 2rem;
-        }
-
-        .content-section.active {
-            display: block;
-        }
-
-        .upload-area {
-            border: 3px dashed var(--border-color);
-            border-radius: 1rem;
-            padding: 3rem;
-            text-align: center;
-            cursor: pointer;
-            transition: all 0.3s ease;
-            margin-bottom: 2rem;
-        }
-
-        .upload-area:hover {
-            border-color: var(--primary-color);
-            background: var(--bg-secondary);
-        }
-
-        .upload-area.dragover {
-            border-color: var(--primary-color);
-            background: rgba(37, 99, 235, 0.05);
-        }
-
-        .upload-icon {
-            font-size: 3rem;
-            margin-bottom: 1rem;
-            color: var(--text-secondary);
-        }
-
-        .btn {
-            padding: 0.75rem 1.5rem;
-            font-size: 1rem;
-            font-weight: 600;
-            border: none;
-            border-radius: 0.5rem;
-            cursor: pointer;
-            transition: all 0.3s ease;
-            display: inline-flex;
-            align-items: center;
-            gap: 0.5rem;
-        }
-
-        .btn-primary {
-            background: var(--primary-color);
-            color: white;
-        }
-
-        .btn-primary:hover:not(:disabled) {
-            background: #1d4ed8;
-            transform: translateY(-2px);
-            box-shadow: 0 4px 12px rgba(37, 99, 235, 0.3);
-        }
-
-        .btn-success {
-            background: var(--success-color);
-            color: white;
-        }
-
-        .btn-success:hover:not(:disabled) {
-            background: #15803d;
-        }
-
-        .btn:disabled {
-            opacity: 0.5;
-            cursor: not-allowed;
-        }
-
-        .image-preview-grid {
-            display: grid;
-            grid-template-columns: repeat(auto-fill, minmax(200px, 1fr));
-            gap: 1rem;
-            margin-bottom: 2rem;
-        }
-
-        .image-preview-item {
-            position: relative;
-            border: 2px solid var(--border-color);
-            border-radius: 0.5rem;
-            overflow: hidden;
-            aspect-ratio: 1;
-        }
-
-        .image-preview-item img {
-            width: 100%;
-            height: 100%;
-            object-fit: cover;
-        }
-
-        .image-preview-item .remove-btn {
-            position: absolute;
-            top: 0.5rem;
-            right: 0.5rem;
-            background: var(--danger-color);
-            color: white;
-            border: none;
-            border-radius: 50%;
-            width: 2rem;
-            height: 2rem;
-            cursor: pointer;
-            font-size: 1.25rem;
-            display: flex;
-            align-items: center;
-            justify-content: center;
-        }
-
-        .training-controls {
-            display: grid;
-            grid-template-columns: repeat(auto-fit, minmax(250px, 1fr));
-            gap: 1.5rem;
-            margin-bottom: 2rem;
-        }
-
-        .control-group {
-            display: flex;
-            flex-direction: column;
-            gap: 0.5rem;
-        }
-
-        .control-group label {
-            font-weight: 600;
-            color: var(--text-primary);
-        }
-
-        .control-group input,
-        .control-group select {
-            padding: 0.75rem;
-            border: 2px solid var(--border-color);
-            border-radius: 0.5rem;
-            font-size: 1rem;
-        }
-
-        .progress-container {
-            margin: 2rem 0;
-        }
-
-        .progress-bar {
-            width: 100%;
-            height: 2rem;
-            background: var(--bg-secondary);
-            border-radius: 1rem;
-            overflow: hidden;
-            margin-bottom: 0.5rem;
-        }
-
-        .progress-fill {
-            height: 100%;
-            background: linear-gradient(90deg, var(--primary-color), var(--success-color));
-            transition: width 0.3s ease;
-            display: flex;
-            align-items: center;
-            justify-content: center;
-            color: white;
-            font-weight: 600;
-        }
-
-        .results-container {
-            margin-top: 2rem;
-        }
-
-        .result-card {
-            background: var(--bg-secondary);
-            border-radius: 0.75rem;
-            padding: 1.5rem;
-            margin-bottom: 1rem;
-            border-left: 4px solid var(--primary-color);
-        }
-
-        .result-card.covid {
-            border-left-color: var(--danger-color);
-        }
-
-        .result-card.normal {
-            border-left-color: var(--success-color);
-        }
-
-        .result-header {
-            display: flex;
-            justify-content: space-between;
-            align-items: center;
-            margin-bottom: 1rem;
-        }
-
-        .result-label {
-            font-size: 1.5rem;
-            font-weight: 700;
-        }
-
-        .confidence-badge {
-            padding: 0.5rem 1rem;
-            border-radius: 2rem;
-            font-weight: 600;
-            font-size: 0.875rem;
-        }
-
-        .confidence-high {
-            background: rgba(22, 163, 74, 0.1);
-            color: var(--success-color);
-        }
-
-        .confidence-medium {
-            background: rgba(234, 88, 12, 0.1);
-            color: var(--warning-color);
-        }
-
-        .confidence-low {
-            background: rgba(220, 38, 38, 0.1);
-            color: var(--danger-color);
-        }
-
-        .confidence-bars {
-            display: flex;
-            flex-direction: column;
-            gap: 0.75rem;
-        }
-
-        .confidence-bar-item {
-            display: flex;
-            align-items: center;
-            gap: 1rem;
-        }
-
-        .confidence-bar-label {
-            min-width: 100px;
-            font-weight: 600;
-        }
-
-        .confidence-bar-track {
-            flex: 1;
-            height: 1.5rem;
-            background: var(--bg-primary);
-            border-radius: 0.75rem;
-            overflow: hidden;
-            position: relative;
-        }
-
-        .confidence-bar-fill {
-            height: 100%;
-            background: var(--primary-color);
-            transition: width 0.5s ease;
-            display: flex;
-            align-items: center;
-            justify-content: flex-end;
-            padding-right: 0.5rem;
-            color: white;
-            font-size: 0.875rem;
-            font-weight: 600;
-        }
-
-        .metrics-grid {
-            display: grid;
-            grid-template-columns: repeat(auto-fit, minmax(200px, 1fr));
-            gap: 1rem;
-            margin-top: 2rem;
-        }
-
-        .metric-card {
-            background: var(--bg-primary);
-            padding: 1.5rem;
-            border-radius: 0.75rem;
-            text-align: center;
-            border: 2px solid var(--border-color);
-        }
-
-        .metric-value {
-            font-size: 2rem;
-            font-weight: 700;
-            color: var(--primary-color);
-            margin-bottom: 0.5rem;
-        }
-
-        .metric-label {
-            color: var(--text-secondary);
-            font-size: 0.875rem;
-            text-transform: uppercase;
-            letter-spacing: 0.05em;
-        }
-
-        .warning-box {
-            background: rgba(234, 88, 12, 0.1);
-            border: 2px solid var(--warning-color);
-            border-radius: 0.75rem;
-            padding: 1.5rem;
-            margin: 2rem 0;
-        }
-
-        .warning-box h3 {
-            color: var(--warning-color);
-            margin-bottom: 0.5rem;
-            display: flex;
-            align-items: center;
-            gap: 0.5rem;
-        }
-
-        .model-management {
-            display: flex;
-            gap: 1rem;
-            flex-wrap: wrap;
-            margin-top: 2rem;
-        }
-
-        .status-indicator {
-            display: inline-flex;
-            align-items: center;
-            gap: 0.5rem;
-            padding: 0.5rem 1rem;
-            border-radius: 2rem;
-            font-size: 0.875rem;
-            font-weight: 600;
-        }
-
-        .status-ready {
-            background: rgba(22, 163, 74, 0.1);
-            color: var(--success-color);
-        }
-
-        .status-training {
-            background: rgba(37, 99, 235, 0.1);
-            color: var(--primary-color);
-        }
-
-        .status-idle {
-            background: rgba(100, 116, 139, 0.1);
-            color: var(--text-secondary);
-        }
-
-        .spinner {
-            display: inline-block;
-            width: 1rem;
-            height: 1rem;
-            border: 2px solid currentColor;
-            border-right-color: transparent;
-            border-radius: 50%;
-            animation: spin 0.75s linear infinite;
-        }
-
-        @keyframes spin {
-            to { transform: rotate(360deg); }
-        }
-
-        footer {
-            text-align: center;
-            padding: 2rem;
-            color: var(--text-secondary);
-            font-size: 0.875rem;
-        }
-
+        
         @media (max-width: 768px) {
             .container {
-                padding: 1rem;
-            }
-
-            header h1 {
-                font-size: 1.75rem;
-            }
-
-            .mode-selector {
-                flex-direction: column;
-            }
-
-            .training-controls {
                 grid-template-columns: 1fr;
             }
+        }
+        
+        .column {
+            background: white;
+            padding: 20px;
+            border-radius: 8px;
+            box-shadow: 0 2px 10px rgba(0,0,0,0.1);
+        }
+        
+        h1, h2, h3 {
+            color: #333;
+            margin-bottom: 15px;
+        }
+        
+        .section {
+            margin-bottom: 25px;
+            padding-bottom: 20px;
+            border-bottom: 1px solid #eee;
+        }
+        
+        input[type="file"] {
+            margin: 10px 0;
+            padding: 8px;
+            border: 1px solid #ddd;
+            border-radius: 4px;
+            width: 100%;
+        }
+        
+        button {
+            background-color: #4CAF50;
+            color: white;
+            padding: 10px 15px;
+            border: none;
+            border-radius: 4px;
+            cursor: pointer;
+            margin: 5px 5px 5px 0;
+            font-size: 14px;
+        }
+        
+        button:hover {
+            background-color: #45a049;
+        }
+        
+        button:disabled {
+            background-color: #cccccc;
+            cursor: not-allowed;
+        }
+        
+        .status-panel {
+            background-color: #f8f9fa;
+            padding: 15px;
+            border-radius: 4px;
+            margin: 10px 0;
+            font-size: 14px;
+        }
+        
+        #training-charts {
+            margin: 20px 0;
+            min-height: 300px;
+        }
+        
+        #test-image-preview {
+            max-width: 200px;
+            max-height: 200px;
+            margin: 10px 0;
+            border: 1px solid #ddd;
+            border-radius: 4px;
+        }
+        
+        #prediction-result {
+            font-size: 18px;
+            font-weight: bold;
+            margin: 15px 0;
+            padding: 10px;
+            border-radius: 4px;
+        }
+        
+        .pneumonia {
+            background-color: #ffebee;
+            color: #c62828;
+        }
+        
+        .normal {
+            background-color: #e8f5e8;
+            color: #2e7d32;
+        }
+        
+        .model-summary {
+            font-family: monospace;
+            font-size: 12px;
+            background-color: #f5f5f5;
+            padding: 10px;
+            border-radius: 4px;
+            overflow-x: auto;
+            white-space: pre;
         }
     </style>
 </head>
 <body>
-    <div class="medical-disclaimer">
-        <h2>⚠️ MEDICAL DISCLAIMER - FOR EDUCATIONAL USE ONLY ⚠️</h2>
-        <p>This tool is for educational and research purposes only. It is NOT intended for clinical diagnosis or medical decision-making. Always consult qualified healthcare professionals for medical advice.</p>
-    </div>
-
+    <h1>COVID-19 X-ray Classifier</h1>
+    <p>Train and test a CNN model directly in your browser to classify chest X-rays</p>
+    
     <div class="container">
-        <header>
-            <h1>COVID-19 Chest X-Ray Classifier</h1>
-            <p>AI-Powered Educational Tool for Medical Image Analysis</p>
-            <div style="margin-top: 1rem;">
-                <span class="status-indicator status-idle" id="modelStatus">
-                    <span>●</span> Model Not Loaded
-                </span>
-            </div>
-        </header>
-
-        <div class="mode-selector">
-            <button class="mode-btn active" data-mode="inference">
-                Inference Mode
-            </button>
-            <button class="mode-btn" data-mode="training">
-                Training Mode (Educational)
-            </button>
-        </div>
-
-        <!-- Inference Mode -->
-        <div class="content-section active" id="inference-section">
-            <h2 style="margin-bottom: 1.5rem;">Classify Chest X-Ray Images</h2>
+        <!-- Left Column: Training Section -->
+        <div class="column">
+            <h2>Training Section</h2>
             
-            <div class="warning-box">
-                <h3>⚠️ Important Notice</h3>
-                <p>This classifier is a demonstration tool only. Results should never be used for actual medical diagnosis. All image processing happens locally in your browser - no data is sent to any server.</p>
+            <div class="section">
+                <h3>1. Upload Training Data</h3>
+                <label>Upload Pneumonia Images:</label>
+                <input type="file" id="pneumonia-files" multiple accept="image/jpeg,image/png,image/jpg">
+                
+                <label>Upload Normal Images:</label>
+                <input type="file" id="normal-files" multiple accept="image/jpeg,image/png,image/jpg">
+                
+                <button onclick="onLoadData()">Load & Preprocess Data</button>
             </div>
-
-            <div class="upload-area" id="inferenceUpload">
-                <div class="upload-icon">📁</div>
-                <h3>Drop X-Ray Images Here or Click to Upload</h3>
-                <p style="color: var(--text-secondary); margin-top: 0.5rem;">Supports JPG, PNG formats</p>
-                <input type="file" id="inferenceFileInput" accept="image/*" multiple style="display: none;">
-            </div>
-
-            <div class="image-preview-grid" id="inferencePreview"></div>
-
-            <div style="display: flex; gap: 1rem; justify-content: center;">
-                <button class="btn btn-primary" id="classifyBtn" disabled>
-                    <span>🔍</span> Classify Images
-                </button>
-                <button class="btn" id="clearInferenceBtn" style="background: var(--text-secondary); color: white;">
-                    Clear All
-                </button>
-            </div>
-
-            <div class="results-container" id="inferenceResults"></div>
-        </div>
-
-        <!-- Training Mode -->
-        <div class="content-section" id="training-section">
-            <h2 style="margin-bottom: 1.5rem;">Train Custom Model (Educational)</h2>
             
-            <div class="warning-box">
-                <h3>⚠️ Educational Purpose Only</h3>
-                <p>This training mode is for learning about medical AI. Real medical AI systems require extensive validation, regulatory approval, and professional oversight. Training happens in your browser and may take several minutes.</p>
-            </div>
-
-            <div style="display: grid; grid-template-columns: 1fr 1fr; gap: 2rem; margin-bottom: 2rem;">
-                <div>
-                    <h3 style="margin-bottom: 1rem;">COVID-19 Positive X-Rays</h3>
-                    <div class="upload-area" id="covidUpload">
-                        <div class="upload-icon">📁</div>
-                        <p>Upload COVID-19 X-Rays</p>
-                        <input type="file" id="covidFileInput" accept="image/*" multiple style="display: none;">
-                    </div>
-                    <div class="image-preview-grid" id="covidPreview"></div>
-                    <p style="text-align: center; color: var(--text-secondary); margin-top: 0.5rem;">
-                        <span id="covidCount">0</span> images uploaded
-                    </p>
-                </div>
-
-                <div>
-                    <h3 style="margin-bottom: 1rem;">Normal X-Rays</h3>
-                    <div class="upload-area" id="normalUpload">
-                        <div class="upload-icon">📁</div>
-                        <p>Upload Normal X-Rays</p>
-                        <input type="file" id="normalFileInput" accept="image/*" multiple style="display: none;">
-                    </div>
-                    <div class="image-preview-grid" id="normalPreview"></div>
-                    <p style="text-align: center; color: var(--text-secondary); margin-top: 0.5rem;">
-                        <span id="normalCount">0</span> images uploaded
-                    </p>
+            <div class="section">
+                <h3>2. Data Status</h3>
+                <div class="status-panel" id="data-status">
+                    No data loaded. Please upload images and click "Load & Preprocess Data".
                 </div>
             </div>
-
-            <div class="training-controls">
-                <div class="control-group">
-                    <label>Learning Rate</label>
-                    <input type="number" id="learningRate" value="0.001" step="0.0001" min="0.0001" max="0.1">
-                </div>
-                <div class="control-group">
-                    <label>Epochs</label>
-                    <input type="number" id="epochs" value="10" min="1" max="50">
-                </div>
-                <div class="control-group">
-                    <label>Batch Size</label>
-                    <input type="number" id="batchSize" value="8" min="1" max="32">
-                </div>
-                <div class="control-group">
-                    <label>Validation Split</label>
-                    <input type="number" id="validationSplit" value="0.2" step="0.05" min="0.1" max="0.4">
+            
+            <div class="section">
+                <h3>3. Model Training</h3>
+                <button onclick="onTrain()">Train Model</button>
+                <button onclick="onSaveModel()">Save Model (Download)</button>
+                <button onclick="document.getElementById('model-upload').click()">Load Model (From Files)</button>
+                <input type="file" id="model-upload" accept=".json,.bin" style="display: none;" onchange="onLoadModel(event)" multiple>
+                
+                <div id="training-progress" class="status-panel" style="display: none;">
+                    Training in progress...
                 </div>
             </div>
-
-            <div style="display: flex; gap: 1rem; justify-content: center; margin-bottom: 2rem;">
-                <button class="btn btn-success" id="trainBtn" disabled>
-                    <span>🚀</span> Start Training
-                </button>
-                <button class="btn" id="stopTrainingBtn" style="background: var(--danger-color); color: white; display: none;">
-                    <span>⏹</span> Stop Training
-                </button>
+            
+            <div class="section">
+                <h3>4. Training Charts</h3>
+                <div id="training-charts"></div>
             </div>
-
-            <div class="progress-container" id="trainingProgress" style="display: none;">
-                <h3 style="margin-bottom: 1rem;">Training Progress</h3>
-                <div class="progress-bar">
-                    <div class="progress-fill" id="progressFill" style="width: 0%;">0%</div>
-                </div>
-                <p style="text-align: center; color: var(--text-secondary);" id="progressText">Preparing training...</p>
-            </div>
-
-            <div class="metrics-grid" id="trainingMetrics" style="display: none;">
-                <div class="metric-card">
-                    <div class="metric-value" id="metricLoss">-</div>
-                    <div class="metric-label">Loss</div>
-                </div>
-                <div class="metric-card">
-                    <div class="metric-value" id="metricAccuracy">-</div>
-                    <div class="metric-label">Accuracy</div>
-                </div>
-                <div class="metric-card">
-                    <div class="metric-value" id="metricValLoss">-</div>
-                    <div class="metric-label">Val Loss</div>
-                </div>
-                <div class="metric-card">
-                    <div class="metric-value" id="metricValAccuracy">-</div>
-                    <div class="metric-label">Val Accuracy</div>
+            
+            <div class="section">
+                <h3>5. Model Summary</h3>
+                <div id="model-summary" class="model-summary">
+                    No model loaded. Train a new model or load an existing one.
                 </div>
             </div>
-
-            <div class="model-management">
-                <button class="btn btn-primary" id="saveModelBtn" disabled>
-                    <span>💾</span> Save Model
-                </button>
-                <button class="btn btn-primary" id="loadModelBtn">
-                    <span>📂</span> Load Model
-                </button>
-                <button class="btn" id="exportResultsBtn" style="background: var(--text-secondary); color: white;" disabled>
-                    <span>📊</span> Export Results
-                </button>
+        </div>
+        
+        <!-- Right Column: Testing Section -->
+        <div class="column">
+            <h2>Testing Section</h2>
+            
+            <div class="section">
+                <h3>1. Upload Test Image</h3>
+                <input type="file" id="test-image" accept="image/jpeg,image/png,image/jpg">
+                <button onclick="onPredict()">Predict</button>
+                
+                <div id="test-image-container">
+                    <img id="test-image-preview" style="display: none;">
+                </div>
+            </div>
+            
+            <div class="section">
+                <h3>2. Prediction Result</h3>
+                <div id="prediction-result">
+                    Upload an image and click "Predict" to see results.
+                </div>
             </div>
         </div>
     </div>
 
-    <footer>
-        <p><strong>Privacy Notice:</strong> All processing happens locally in your browser. No images or data are sent to any server.</p>
-        <p style="margin-top: 0.5rem;">Built with TensorFlow.js | For Educational Purposes Only</p>
-    </footer>
-
-    <!-- Load JavaScript modules with type="module" for ES6 support -->
-    <script type="module" src="ui-controller.js"></script>
+    <script defer src="data-loader.js"></script>
+    <script defer src="app.js"></script>
 </body>
 </html>
