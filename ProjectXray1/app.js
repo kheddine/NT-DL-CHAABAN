@@ -4,11 +4,6 @@
 let model = null;
 let trainingHistory = [];
 let isTraining = false;
-let currentMetrics = {
-    trainAccuracy: 0,
-    valAccuracy: 0,
-    trainingTime: 0
-};
 
 // DOM elements
 const dataStatusEl = document.getElementById('data-status');
@@ -17,7 +12,6 @@ const trainingChartsEl = document.getElementById('training-charts');
 const modelSummaryEl = document.getElementById('model-summary');
 const testImagePreviewEl = document.getElementById('test-image-preview');
 const predictionResultEl = document.getElementById('prediction-result');
-const metricsDisplayEl = document.getElementById('metrics-display');
 const samplePredictionsEl = document.getElementById('sample-predictions');
 
 /**
@@ -25,7 +19,6 @@ const samplePredictionsEl = document.getElementById('sample-predictions');
  */
 document.addEventListener('DOMContentLoaded', function() {
     console.log('COVID-19 X-ray Classifier initialized');
-    updateMetricsDisplay();
     initializeModelSummary();
 });
 
@@ -43,8 +36,8 @@ async function onLoadData() {
 
     try {
         // Show loading state
-        dataStatusEl.className = 'status-panel warning';
-        dataStatusEl.innerHTML = '<div class="spinner"></div>Loading and preprocessing X-ray images...';
+        dataStatusEl.className = 'status-panel';
+        dataStatusEl.innerHTML = 'Loading and preprocessing X-ray images...';
         
         // Clear previous data
         disposeData();
@@ -67,7 +60,6 @@ async function onLoadData() {
         statusHTML += `Total samples: ${stats.totalSamples}<br>`;
         statusHTML += `<small>Images resized to 128×128 pixels and normalized to [0,1]</small>`;
         
-        dataStatusEl.className = 'status-panel success';
         dataStatusEl.innerHTML = statusHTML;
         
         console.log('Training data prepared:', stats);
@@ -77,7 +69,6 @@ async function onLoadData() {
         
     } catch (error) {
         console.error('Error loading training data:', error);
-        dataStatusEl.className = 'status-panel error';
         dataStatusEl.innerHTML = `<strong>Error loading data:</strong> ${error.message}`;
     }
 }
@@ -130,7 +121,7 @@ function createImagePreview(tensor, label, isPneumonia) {
 }
 
 /**
- * Create and train the CNN model
+ * Create and train the CNN model - FIXED VERSION
  */
 async function onTrain() {
     if (!trainingData.xs) {
@@ -146,8 +137,7 @@ async function onTrain() {
     try {
         isTraining = true;
         trainingProgressEl.style.display = 'block';
-        trainingProgressEl.className = 'status-panel warning';
-        trainingProgressEl.innerHTML = '<div class="spinner"></div>Initializing model training...';
+        trainingProgressEl.innerHTML = 'Initializing model training...';
         
         // Create model if it doesn't exist
         if (!model) {
@@ -157,19 +147,8 @@ async function onTrain() {
         // Clear previous charts
         trainingChartsEl.innerHTML = '';
         
-        // Split data for validation
-        const numSamples = trainingData.xs.shape[0];
-        const numVal = Math.floor(numSamples * 0.2);
-        const numTrain = numSamples - numVal;
-        
-        const indices = tf.util.createShuffledIndices(numSamples);
-        const trainIndices = indices.slice(0, numTrain);
-        const valIndices = indices.slice(numTrain);
-        
-        const trainXs = tf.gather(trainingData.xs, trainIndices);
-        const trainYs = tf.gather(trainingData.ys, trainIndices);
-        const valXs = tf.gather(trainingData.xs, valIndices);
-        const valYs = tf.gather(trainingData.ys, valIndices);
+        // Split data for validation using the fixed function
+        const { trainXs, trainYs, valXs, valYs } = splitTrainVal(trainingData.xs, trainingData.ys, 0.2);
         
         // Prepare training callbacks for live visualization
         const callbacks = tfvis.show.fitCallbacks(
@@ -178,21 +157,21 @@ async function onTrain() {
             {
                 callbacks: ['onEpochEnd', 'onBatchEnd'],
                 height: 300,
-                width: 500
+                width: 400
             }
         );
         
         // Training configuration
         const trainingConfig = {
-            epochs: 10,
-            batchSize: 16,
+            epochs: 5,
+            batchSize: 8,
             validationData: [valXs, valYs],
             shuffle: true,
             callbacks: callbacks
         };
         
         console.log('Starting model training with config:', trainingConfig);
-        trainingProgressEl.innerHTML = '<div class="spinner"></div>Training started...';
+        trainingProgressEl.innerHTML = 'Training started...';
         
         const startTime = Date.now();
         
@@ -208,12 +187,6 @@ async function onTrain() {
         const finalValLoss = history.history.val_loss[history.history.val_loss.length - 1].toFixed(4);
         const finalValAcc = history.history.val_acc[history.history.val_acc.length - 1].toFixed(4);
         
-        // Update global metrics
-        currentMetrics.trainAccuracy = finalAcc;
-        currentMetrics.valAccuracy = finalValAcc;
-        currentMetrics.trainingTime = trainingTime;
-        
-        trainingProgressEl.className = 'status-panel success';
         trainingProgressEl.innerHTML = `
             <strong>Training Completed!</strong><br>
             Duration: ${trainingTime} seconds<br>
@@ -225,8 +198,7 @@ async function onTrain() {
         
         console.log(`Training completed in ${trainingTime}s. Final accuracy: ${(finalAcc * 100).toFixed(1)}%`);
         
-        // Update metrics display
-        updateMetricsDisplay();
+        // Update model summary
         updateModelSummary();
         
         // Clean up tensors
@@ -237,7 +209,6 @@ async function onTrain() {
         
     } catch (error) {
         console.error('Error during training:', error);
-        trainingProgressEl.className = 'status-panel error';
         trainingProgressEl.innerHTML = `<strong>Training failed:</strong> ${error.message}`;
     } finally {
         isTraining = false;
@@ -265,14 +236,6 @@ function createModel() {
             tf.layers.maxPooling2d({ poolSize: 2 }),
             
             // Second convolutional block
-            tf.layers.conv2d({
-                filters: 64,
-                kernelSize: 3,
-                activation: 'relu'
-            }),
-            tf.layers.maxPooling2d({ poolSize: 2 }),
-            
-            // Third convolutional block
             tf.layers.conv2d({
                 filters: 64,
                 kernelSize: 3,
@@ -316,8 +279,7 @@ async function onPredict() {
     }
     
     try {
-        predictionResultEl.className = 'status-panel warning';
-        predictionResultEl.innerHTML = '<div class="spinner"></div>Processing X-ray image...';
+        predictionResultEl.innerHTML = 'Processing X-ray image...';
         
         // Load and preprocess test image
         const testTensor = await loadTestImage(testFile);
@@ -333,7 +295,7 @@ async function onPredict() {
         const confidencePercent = (confidence * 100).toFixed(1);
         
         // Display result
-        predictionResultEl.className = `status-panel ${isPneumonia ? 'error' : 'success'}`;
+        predictionResultEl.className = `status-panel ${isPneumonia ? 'pneumonia' : 'normal'}`;
         predictionResultEl.innerHTML = `
             <strong>Prediction: ${className}</strong><br>
             Confidence: ${confidencePercent}%<br>
@@ -342,16 +304,12 @@ async function onPredict() {
         
         console.log(`Prediction: ${className} (${confidencePercent}% confidence)`);
         
-        // Update metrics display with prediction info
-        updateMetricsDisplay(confidencePercent, className);
-        
         // Clean up tensors
         testTensor.dispose();
         prediction.dispose();
         
     } catch (error) {
         console.error('Error during prediction:', error);
-        predictionResultEl.className = 'status-panel error';
         predictionResultEl.innerHTML = `<strong>Prediction failed:</strong> ${error.message}`;
     }
 }
@@ -445,14 +403,12 @@ function updateModelSummary() {
                 trainableParams += params;
             }
             
-            summary += `${(i + 1).toString().padStart(2, ' ')}) ${layerType.padEnd(20)} ${outputShape.padEnd(25)} ${params.toString().padStart(8)} params\n`;
+            summary += `${(i + 1).toString().padStart(2, ' ')}) ${layerType.padEnd(15)} ${outputShape.padEnd(20)} ${params.toString().padStart(8)} params\n`;
         });
         
         summary += `\nTotal params: ${totalParams.toLocaleString()}\n`;
         summary += `Trainable params: ${trainableParams.toLocaleString()}\n`;
-        summary += `Non-trainable params: ${(totalParams - trainableParams).toLocaleString()}\n\n`;
-        summary += `Input shape: [128, 128, 3]\n`;
-        summary += `Output: Pneumonia probability (0-1)`;
+        summary += `Non-trainable params: ${(totalParams - trainableParams).toLocaleString()}`;
         
         modelSummaryEl.textContent = summary;
         
@@ -468,78 +424,20 @@ function updateModelSummary() {
 function initializeModelSummary() {
     const summary = `Model Architecture (when created):
 
- 1) conv2d              126, 126, 32            896 params
- 2) max_pooling2d       63, 63, 32                0 params
- 3) conv2d              61, 61, 64            18496 params
- 4) max_pooling2d       30, 30, 64                0 params
- 5) conv2d              28, 28, 64            36928 params
- 6) max_pooling2d       14, 14, 64                0 params
- 7) flatten                12544                  0 params
- 8) dense                  128              1605760 params
- 9) dropout                128                    0 params
-10) dense                   1                  129 params
+ 1) conv2d          126, 126, 32      896 params
+ 2) max_pooling2d   63, 63, 32          0 params
+ 3) conv2d          61, 61, 64      18496 params
+ 4) max_pooling2d   30, 30, 64          0 params
+ 5) flatten         57600                0 params
+ 6) dense           128            7372928 params
+ 7) dropout         128                  0 params
+ 8) dense           1                  129 params
 
-Total params: 1,662,209
-Trainable params: 1,662,209
-Non-trainable params: 0
-
-Input shape: [128, 128, 3]
-Output: Pneumonia probability (0-1)`;
+Total params: 7,392,449
+Trainable params: 7,392,449
+Non-trainable params: 0`;
     
     modelSummaryEl.textContent = summary;
-}
-
-/**
- * Update the metrics display with current performance data
- */
-function updateMetricsDisplay(confidence = null, className = null) {
-    let metricsHTML = '';
-    
-    if (currentMetrics.trainAccuracy > 0) {
-        metricsHTML += `
-            <div class="metric-card">
-                <div class="metric-label">Training Accuracy</div>
-                <div class="metric-value">${(currentMetrics.trainAccuracy * 100).toFixed(1)}%</div>
-            </div>
-        `;
-    }
-    
-    if (currentMetrics.valAccuracy > 0) {
-        metricsHTML += `
-            <div class="metric-card">
-                <div class="metric-label">Validation Accuracy</div>
-                <div class="metric-value">${(currentMetrics.valAccuracy * 100).toFixed(1)}%</div>
-            </div>
-        `;
-    }
-    
-    if (confidence !== null) {
-        const colorClass = className === 'Pneumonia' ? 'danger' : 'success';
-        metricsHTML += `
-            <div class="metric-card" style="background: linear-gradient(135deg, ${className === 'Pneumonia' ? '#dc3545, #c82333' : '#28a745, #20c997'});">
-                <div class="metric-label">Current Prediction</div>
-                <div class="metric-value">${confidence}%</div>
-                <div class="metric-label">${className}</div>
-            </div>
-        `;
-    }
-    
-    if (currentMetrics.trainingTime > 0) {
-        metricsHTML += `
-            <div class="metric-card">
-                <div class="metric-label">Training Time</div>
-                <div class="metric-value">${currentMetrics.trainingTime}s</div>
-            </div>
-        `;
-    }
-    
-    metricsDisplayEl.innerHTML = metricsHTML || `
-        <div class="metric-card">
-            <div class="metric-label">No Metrics Yet</div>
-            <div class="metric-value">-</div>
-            <div class="metric-label">Train model to see metrics</div>
-        </div>
-    `;
 }
 
 // Handle page unload to clean up memory
