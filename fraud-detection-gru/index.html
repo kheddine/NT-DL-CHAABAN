@@ -1,0 +1,23 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8">
+  <title>Fraud Detection GRU Demo</title>
+  <script type="module" src="app.js"></script>
+  <link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/modern-normalize/2.0.0/modern-normalize.min.css">
+  <style>
+    body { font-family: Arial, sans-serif; margin: 40px; }
+    input, button { margin: 6px; }
+    #chart { margin-top: 30px; }
+  </style>
+</head>
+<body>
+  <h1>Fraud Detection (TensorFlow.js GRU)</h1>
+  <p>Select a CSV file (PaySim subset):</p>
+  <input type="file" id="fileInput" accept=".csv" />
+  <button id="trainBtn">Train Model</button>
+  <button id="predictBtn">Predict</button>
+  <div id="status"></div>
+  <canvas id="chart" width="800" height="400"></canvas>
+</body>
+</html>
