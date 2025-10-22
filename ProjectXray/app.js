@@ -1,458 +1,307 @@
-class PneumoniaApp {
+import * as tf from 'https://cdn.jsdelivr.net/npm/@tensorflow/tfjs@4.22.0/dist/tf.min.js';
+import { DataLoader } from './data-loader.js';
+import { GRUModel } from './gru.js';
+
+export class StockPredictionApp {
     constructor() {
-        this.model = new PneumoniaModel();
-        this.currentMode = 'training';
-        this.trainingData = {
-            normal: [],
-            pneumonia: []
-        };
-        this.testImages = [];
+        this.dataLoader = new DataLoader();
+        this.model = new GRUModel();
+        this.isTraining = false;
+        this.testPredictions = null;
+        this.testLabels = null;
+        this.symbols = [];
         
-        this.initialize();
+        this.initializeUI();
+        this.setupEventListeners();
     }
 
-    async initialize() {
-        try {
-            await this.model.initialize();
-            this.setupEventListeners();
-            this.updateUI();
-            this.showResults('Application ready. Upload training data to begin.');
-        } catch (error) {
-            this.showResults(`Initialization failed: ${error.message}`);
+    initializeUI() {
+        // Ensure required DOM elements exist
+        if (!document.getElementById('csvFile') || !document.getElementById('trainBtn')) {
+            console.error('Required DOM elements not found');
+            return;
         }
     }
 
     setupEventListeners() {
-        // Mode switching
-        document.querySelectorAll('.mode-btn').forEach(btn => {
-            btn.addEventListener('click', (e) => {
-                this.switchMode(e.target.dataset.mode);
-            });
+        // File input handler
+        document.getElementById('csvFile').addEventListener('change', (e) => {
+            this.handleFileUpload(e.target.files[0]);
         });
 
-        // Training file inputs
-        document.getElementById('normalFiles').addEventListener('change', (e) => {
-            this.handleTrainingFiles(e.target.files, 'normal');
-        });
-        document.getElementById('pneumoniaFiles').addEventListener('change', (e) => {
-            this.handleTrainingFiles(e.target.files, 'pneumonia');
-        });
-
-        // Testing file input
-        const uploadArea = document.getElementById('uploadArea');
-        const testFilesInput = document.getElementById('testFiles');
-        
-        uploadArea.addEventListener('click', () => testFilesInput.click());
-        testFilesInput.addEventListener('change', (e) => {
-            this.handleTestFiles(e.target.files);
-        });
-
-        // Drag and drop for testing
-        uploadArea.addEventListener('dragover', (e) => {
-            e.preventDefault();
-            uploadArea.style.background = '#e3f2fd';
-            uploadArea.style.borderColor = '#3498db';
-        });
-
-        uploadArea.addEventListener('dragleave', (e) => {
-            e.preventDefault();
-            uploadArea.style.background = '';
-            uploadArea.style.borderColor = '#bdc3c7';
-        });
-
-        uploadArea.addEventListener('drop', (e) => {
-            e.preventDefault();
-            uploadArea.style.background = '';
-            uploadArea.style.borderColor = '#bdc3c7';
-            this.handleTestFiles(e.dataTransfer.files);
-        });
-
-        // Action buttons
+        // Train button handler
         document.getElementById('trainBtn').addEventListener('click', () => {
             this.startTraining();
         });
-        document.getElementById('predictBtn').addEventListener('click', () => {
-            this.runPredictions();
-        });
-        document.getElementById('resetBtn').addEventListener('click', () => {
-            this.resetTraining();
-        });
-        document.getElementById('clearBtn').addEventListener('click', () => {
-            this.clearTesting();
+
+        // Listen for training progress
+        window.addEventListener('trainingProgress', (e) => {
+            this.updateTrainingProgress(e.detail);
         });
     }
 
-    switchMode(mode) {
-        this.currentMode = mode;
-        
-        // Update UI
-        document.querySelectorAll('.mode-btn').forEach(btn => {
-            btn.classList.toggle('active', btn.dataset.mode === mode);
-        });
-        
-        document.getElementById('trainingSection').style.display = 
-            mode === 'training' ? 'block' : 'none';
-        document.getElementById('testingSection').style.display = 
-            mode === 'testing' ? 'block' : 'none';
-        
-        document.getElementById('panelTitle').textContent = 
-            mode === 'training' ? 'Training Data' : 'Test Images';
-        document.getElementById('resultsTitle').textContent = 
-            mode === 'training' ? 'Training Results' : 'Prediction Results';
-        
-        this.updateUI();
-    }
-
-    async handleTrainingFiles(files, type) {
-        const validFiles = this.validateFiles(files);
-        if (validFiles.length === 0) return;
-
-        this.showLoading(`Loading ${type} images...`);
+    async handleFileUpload(file) {
+        if (!file) return;
         
         try {
-            this.trainingData[type] = await this.loadImages(validFiles);
-            this.updateTrainingStats(type, this.trainingData[type].length);
-            this.checkTrainingReady();
+            this.updateStatus('Loading CSV file...');
+            await this.dataLoader.loadCSV(file);
+            this.dataLoader.createSamples();
+            
+            const data = this.dataLoader.getData();
+            this.symbols = data.symbols;
+            
+            this.updateStatus(`Data loaded: ${this.symbols.length} stocks, ${data.X_train.shape[0]} training samples, ${data.X_test.shape[0]} test samples`);
+            document.getElementById('trainBtn').disabled = false;
+            
         } catch (error) {
-            this.showResults(`Error loading ${type} images: ${error.message}`);
-        } finally {
-            this.hideLoading();
-        }
-    }
-
-    async handleTestFiles(files) {
-        const validFiles = this.validateFiles(files);
-        if (validFiles.length === 0) return;
-
-        this.showLoading('Loading test images...');
-        
-        try {
-            this.testImages = await this.loadImages(validFiles);
-            this.showImagePreviews(this.testImages);
-            document.getElementById('predictBtn').disabled = false;
-            this.showResults(`Loaded ${this.testImages.length} test images. Ready for prediction.`);
-        } catch (error) {
-            this.showResults(`Error loading test images: ${error.message}`);
-        } finally {
-            this.hideLoading();
-        }
-    }
-
-    validateFiles(files) {
-        return Array.from(files).filter(file => {
-            const isImage = file.type.startsWith('image/');
-            const isSizeValid = file.size <= 10 * 1024 * 1024; // 10MB
-            
-            if (!isImage) {
-                console.warn(`Skipping non-image file: ${file.name}`);
-                return false;
-            }
-            if (!isSizeValid) {
-                console.warn(`File too large: ${file.name} (${(file.size / 1024 / 1024).toFixed(1)}MB)`);
-                return false;
-            }
-            
-            return true;
-        });
-    }
-
-    async loadImages(files) {
-        const images = [];
-        for (let file of files) {
-            try {
-                const imageData = await this.loadImage(file);
-                images.push(imageData);
-            } catch (error) {
-                console.error(`Failed to load image ${file.name}:`, error);
-            }
-        }
-        return images;
-    }
-
-    loadImage(file) {
-        return new Promise((resolve, reject) => {
-            const reader = new FileReader();
-            const img = new Image();
-            
-            reader.onload = (e) => {
-                img.onload = () => resolve({
-                    file: file,
-                    element: img,
-                    url: e.target.result
-                });
-                img.onerror = () => reject(new Error(`Failed to load image: ${file.name}`));
-                img.src = e.target.result;
-            };
-            
-            reader.onerror = () => reject(new Error(`Failed to read file: ${file.name}`));
-            reader.readAsDataURL(file);
-        });
-    }
-
-    updateTrainingStats(type, count) {
-        const statsDiv = document.getElementById(`${type}Stats`);
-        statsDiv.innerHTML = `
-            <div class="stat-card">
-                <div class="stat-value ${type}-stat">${count}</div>
-                <div>${type.charAt(0).toUpperCase() + type.slice(1)} Images</div>
-            </div>
-        `;
-        statsDiv.style.display = 'grid';
-    }
-
-    checkTrainingReady() {
-        const normalCount = this.trainingData.normal.length;
-        const pneumoniaCount = this.trainingData.pneumonia.length;
-        const isReady = normalCount > 0 && pneumoniaCount > 0;
-        
-        document.getElementById('trainBtn').disabled = !isReady;
-        
-        if (isReady) {
-            const total = normalCount + pneumoniaCount;
-            this.showResults(`Ready to train! ${total} total images (${normalCount} normal, ${pneumoniaCount} pneumonia)`);
+            this.updateStatus(`Error loading file: ${error.message}`);
+            console.error('File loading error:', error);
         }
     }
 
     async startTraining() {
-        const normalCount = this.trainingData.normal.length;
-        const pneumoniaCount = this.trainingData.pneumonia.length;
+        if (this.isTraining) return;
         
-        if (normalCount === 0 || pneumoniaCount === 0) {
-            this.showResults('Please upload both normal and pneumonia images for training.');
-            return;
-        }
-
-        this.showLoading('Preparing training data...');
-        document.getElementById('trainBtn').disabled = true;
-        document.getElementById('trainingProgress').style.display = 'block';
-
         try {
-            const trainingData = this.prepareTrainingData();
-            const epochs = parseInt(document.getElementById('epochs').value);
-            const batchSize = parseInt(document.getElementById('batchSize').value);
-
-            await this.model.train(trainingData, epochs, batchSize, (progress) => {
-                const percent = (progress.epoch / progress.totalEpochs) * 100;
-                document.getElementById('progressFill').style.width = `${percent}%`;
-                
-                let progressText = `Epoch ${progress.epoch}/${progress.totalEpochs}`;
-                progressText += ` • Accuracy: ${(progress.accuracy * 100).toFixed(1)}%`;
-                progressText += ` • Loss: ${progress.loss.toFixed(4)}`;
-                
-                if (progress.valAccuracy) {
-                    progressText += ` • Val Accuracy: ${(progress.valAccuracy * 100).toFixed(1)}%`;
-                }
-                
-                document.getElementById('progressText').textContent = progressText;
-            });
-
-            this.showResults('Training completed successfully! Model is ready for testing.');
+            this.isTraining = true;
+            document.getElementById('trainBtn').disabled = true;
+            this.updateStatus('Building model...');
+            
+            // Clear previous model
+            this.model.dispose();
+            this.model.buildModel();
+            
+            const data = this.dataLoader.getData();
+            this.updateStatus('Starting training...');
+            
+            await this.model.train(data.X_train, data.y_train, data.X_test, data.y_test, 25, 16); // Reduced for speed
+            
+            this.updateStatus('Training completed. Evaluating model...');
+            await this.evaluateModel();
             
         } catch (error) {
-            this.showResults(`Training failed: ${error.message}`);
+            this.updateStatus(`Training error: ${error.message}`);
+            console.error('Training error:', error);
         } finally {
-            this.hideLoading();
-            document.getElementById('trainingProgress').style.display = 'none';
+            this.isTraining = false;
             document.getElementById('trainBtn').disabled = false;
         }
     }
 
-    prepareTrainingData() {
-        const allTensors = [];
-        const allLabels = [];
+    async evaluateModel() {
+        const data = this.dataLoader.getData();
         
-        // Process normal images
-        this.trainingData.normal.forEach(img => {
-            const tensor = this.preprocessImage(img.element);
-            allTensors.push(tensor);
-            allLabels.push(0); // Normal = 0
-        });
-        
-        // Process pneumonia images
-        this.trainingData.pneumonia.forEach(img => {
-            const tensor = this.preprocessImage(img.element);
-            allTensors.push(tensor);
-            allLabels.push(1); // Pneumonia = 1
-        });
-        
-        const xs = tf.stack(allTensors);
-        const ys = tf.oneHot(allLabels, 2);
-        
-        return { xs, ys };
-    }
-
-    preprocessImage(imgElement) {
-        return tf.tidy(() => {
-            let tensor = tf.browser.fromPixels(imgElement);
-            
-            // Handle different channel formats
-            if (tensor.shape[2] === 1) {
-                // Grayscale to RGB
-                tensor = tensor.concat([tensor, tensor], 2);
-            } else if (tensor.shape[2] === 4) {
-                // Remove alpha channel
-                tensor = tensor.slice([0, 0, 0], [tensor.shape[0], tensor.shape[1], 3]);
-            }
-            
-            // Resize and normalize
-            tensor = tf.image.resizeBilinear(tensor, [150, 150]);
-            tensor = tensor.div(255.0);
-            
-            return tensor;
-        });
-    }
-
-    async runPredictions() {
-        if (this.testImages.length === 0) {
-            this.showResults('Please upload test images first.');
-            return;
-        }
-
-        this.showLoading('Running predictions...');
-        document.getElementById('predictBtn').disabled = true;
-
         try {
-            const modelLoaded = await this.model.loadModel();
-            if (!modelLoaded) {
-                throw new Error('No trained model found. Please train a model first.');
-            }
-
-            const testTensors = this.testImages.map(img => this.preprocessImage(img.element));
-            const predictions = await this.model.predictBatch(testTensors);
+            // Get predictions
+            this.testPredictions = await this.model.predict(data.X_test);
+            this.testLabels = data.y_test;
             
-            this.displayPredictions(predictions);
+            // Compute overall accuracy
+            const evaluation = this.model.evaluate(data.X_test, data.y_test);
+            const overallAccuracy = evaluation[1].dataSync()[0];
+            
+            // Compute per-stock accuracy
+            const perStockAccuracy = this.model.computePerStockAccuracy(
+                this.testPredictions, this.testLabels, this.symbols
+            );
+            
+            this.displayResults(overallAccuracy, perStockAccuracy);
+            this.createVisualizations(perStockAccuracy);
+            
+            // Clean up
+            tf.dispose(evaluation);
             
         } catch (error) {
-            this.showResults(`Prediction error: ${error.message}`);
-        } finally {
-            this.hideLoading();
-            document.getElementById('predictBtn').disabled = false;
-            
-            // Clean up tensors
-            tf.engine().startScope();
-            tf.engine().endScope();
+            this.updateStatus(`Evaluation error: ${error.message}`);
+            console.error('Evaluation error:', error);
         }
     }
 
-    displayPredictions(predictions) {
-        let html = '<h3>Prediction Results</h3>';
-        let normalCount = 0;
-        let pneumoniaCount = 0;
-        let errorCount = 0;
-
-        // Summary stats
-        predictions.forEach((pred, index) => {
-            if (!pred) {
-                errorCount++;
-                return;
-            }
-            
-            if (pred.predictedClass === 'Normal') normalCount++;
-            else pneumoniaCount++;
-        });
-
-        html += `
-            <div class="stats-grid">
-                <div class="stat-card">
-                    <div class="stat-value normal-stat">${normalCount}</div>
-                    <div>Normal</div>
-                </div>
-                <div class="stat-card">
-                    <div class="stat-value pneumonia-stat">${pneumoniaCount}</div>
-                    <div>Pneumonia</div>
-                </div>
-                ${errorCount > 0 ? `
-                <div class="stat-card">
-                    <div class="stat-value" style="color: #f39c12;">${errorCount}</div>
-                    <div>Errors</div>
-                </div>
-                ` : ''}
-            </div>
+    displayResults(overallAccuracy, perStockAccuracy) {
+        const resultsDiv = document.getElementById('results');
+        if (!resultsDiv) return;
+        
+        resultsDiv.innerHTML = `
+            <h3>Model Results</h3>
+            <p><strong>Overall Test Accuracy:</strong> ${(overallAccuracy * 100).toFixed(2)}%</p>
         `;
-
-        // Individual predictions
-        predictions.forEach((pred, index) => {
-            if (!pred) return;
-            
-            const image = this.testImages[index];
-            const isPneumonia = pred.predictedClass === 'Pneumonia';
-            const confidencePercent = (pred.confidence * 100).toFixed(1);
-            
-            html += `
-                <div class="prediction-result ${isPneumonia ? 'pneumonia-positive' : 'normal-negative'}">
-                    <h4>${image.file.name}</h4>
-                    <div><strong>Prediction:</strong> ${pred.predictedClass}</div>
-                    <div><strong>Confidence:</strong> ${confidencePercent}%</div>
-                    <div class="confidence-bar">
-                        <div class="confidence-fill" style="width: ${confidencePercent}%"></div>
-                    </div>
-                    <div style="font-size: 0.9em; color: #666;">
-                        Normal: ${(pred.normal * 100).toFixed(1)}% | 
-                        Pneumonia: ${(pred.pneumonia * 100).toFixed(1)}%
-                    </div>
-                </div>
-            `;
-        });
-
-        this.showResults(html);
-    }
-
-    showImagePreviews(images) {
-        const container = document.getElementById('imagePreview');
-        container.innerHTML = '';
         
-        images.forEach(img => {
-            const div = document.createElement('div');
-            div.className = 'preview-item';
-            div.innerHTML = `<img src="${img.url}" alt="${img.file.name}">`;
-            container.appendChild(div);
+        // Create sorted accuracy list
+        const sortedAccuracies = Object.entries(perStockAccuracy)
+            .sort(([, accA], [, accB]) => accB - accA);
+        
+        let accuracyHTML = '<h4>Per-Stock Accuracy (Sorted)</h4><ul>';
+        sortedAccuracies.forEach(([symbol, accuracy]) => {
+            const accuracyPercent = (accuracy * 100).toFixed(2);
+            accuracyHTML += `<li>${symbol}: ${accuracyPercent}%</li>`;
+        });
+        accuracyHTML += '</ul>';
+        
+        resultsDiv.innerHTML += accuracyHTML;
+    }
+
+    createVisualizations(perStockAccuracy) {
+        this.createAccuracyBarChart(perStockAccuracy);
+        this.createPredictionTimelines();
+    }
+
+    createAccuracyBarChart(perStockAccuracy) {
+        const canvas = document.getElementById('accuracyChart');
+        if (!canvas) return;
+        
+        const ctx = canvas.getContext('2d');
+        
+        // Sort stocks by accuracy
+        const sortedStocks = Object.entries(perStockAccuracy)
+            .sort(([, accA], [, accB]) => accB - accA);
+        
+        const margin = { top: 40, right: 20, bottom: 60, left: 80 };
+        const width = canvas.width - margin.left - margin.right;
+        const height = canvas.height - margin.top - margin.bottom;
+        
+        ctx.clearRect(0, 0, canvas.width, canvas.height);
+        
+        // Draw title
+        ctx.fillStyle = '#333';
+        ctx.font = '16px Arial';
+        ctx.textAlign = 'center';
+        ctx.fillText('Stock Prediction Accuracy Ranking', canvas.width / 2, 20);
+        
+        // Draw bars
+        const barHeight = height / sortedStocks.length;
+        const maxAccuracy = Math.max(...Object.values(perStockAccuracy)) || 1;
+        
+        sortedStocks.forEach(([symbol, accuracy], index) => {
+            const barWidth = (accuracy / maxAccuracy) * width;
+            const y = margin.top + index * barHeight;
+            
+            // Bar color based on accuracy
+            const color = accuracy > 0.6 ? '#4CAF50' : accuracy > 0.5 ? '#FFC107' : '#F44336';
+            
+            // Draw bar
+            ctx.fillStyle = color;
+            ctx.fillRect(margin.left, y, barWidth, barHeight - 5);
+            
+            // Draw stock label
+            ctx.fillStyle = '#333';
+            ctx.font = '12px Arial';
+            ctx.textAlign = 'right';
+            ctx.fillText(symbol, margin.left - 5, y + barHeight / 2 + 4);
+            
+            // Draw accuracy percentage
+            ctx.textAlign = 'left';
+            ctx.fillText(`${(accuracy * 100).toFixed(1)}%`, margin.left + barWidth + 5, y + barHeight / 2 + 4);
+        });
+        
+        // Draw axis labels
+        ctx.fillStyle = '#666';
+        ctx.textAlign = 'center';
+        ctx.fillText('Accuracy', canvas.width / 2, canvas.height - 10);
+    }
+
+    createPredictionTimelines() {
+        const container = document.getElementById('timelineContainer');
+        if (!container || !this.testPredictions || !this.testLabels) return;
+        
+        container.innerHTML = '<h4>Prediction Timelines (Sample of Test Data)</h4>';
+        
+        // Get a subset of test samples for visualization
+        const predData = this.testPredictions.arraySync();
+        const trueData = this.testLabels.arraySync();
+        
+        // Show timeline for first 3 stocks, first 20 test samples
+        const stocksToShow = this.symbols.slice(0, Math.min(3, this.symbols.length));
+        const samplesToShow = Math.min(20, predData.length);
+        
+        stocksToShow.forEach(symbol => {
+            const stockIndex = this.symbols.indexOf(symbol);
+            const timelineDiv = document.createElement('div');
+            timelineDiv.className = 'timeline';
+            timelineDiv.innerHTML = `<h5>${symbol} Predictions</h5>`;
+            
+            const canvas = document.createElement('canvas');
+            canvas.width = 800;
+            canvas.height = 100;
+            timelineDiv.appendChild(canvas);
+            container.appendChild(timelineDiv);
+            
+            this.drawStockTimeline(canvas, symbol, stockIndex, predData, trueData, samplesToShow);
         });
     }
 
-    showLoading(message) {
-        document.getElementById('loadingText').textContent = message;
-        document.getElementById('loadingIndicator').style.display = 'block';
-    }
-
-    hideLoading() {
-        document.getElementById('loadingIndicator').style.display = 'none';
-    }
-
-    showResults(content) {
-        document.getElementById('resultsArea').innerHTML = content;
-    }
-
-    updateUI() {
-        if (this.currentMode === 'testing') {
-            document.getElementById('predictBtn').disabled = this.testImages.length === 0;
+    drawStockTimeline(canvas, symbol, stockIndex, predData, trueData, samplesToShow) {
+        const ctx = canvas.getContext('2d');
+        const width = canvas.width;
+        const height = canvas.height;
+        const pointWidth = width / samplesToShow;
+        
+        ctx.clearRect(0, 0, width, height);
+        
+        for (let sampleIdx = 0; sampleIdx < samplesToShow; sampleIdx++) {
+            for (let day = 0; day < 3; day++) {
+                const predIdx = stockIndex * 3 + day;
+                const predicted = predData[sampleIdx][predIdx] > 0.5 ? 1 : 0;
+                const actual = trueData[sampleIdx][predIdx];
+                
+                const x = sampleIdx * pointWidth + (day * pointWidth / 3);
+                const y = height / 2;
+                const radius = 4;
+                
+                // Color: green for correct, red for wrong
+                ctx.fillStyle = predicted === actual ? '#4CAF50' : '#F44336';
+                ctx.beginPath();
+                ctx.arc(x, y, radius, 0, 2 * Math.PI);
+                ctx.fill();
+                
+                // Draw day indicator for first sample only
+                if (sampleIdx === 0) {
+                    ctx.fillStyle = '#666';
+                    ctx.font = '8px Arial';
+                    ctx.fillText(`D${day + 1}`, x - 5, y + 15);
+                }
+            }
         }
+        
+        // Draw legend
+        ctx.fillStyle = '#333';
+        ctx.font = '10px Arial';
+        ctx.fillText('● Correct', 10, 15);
+        ctx.fillStyle = '#F44336';
+        ctx.fillText('● Wrong', 80, 15);
     }
 
-    clearTesting() {
-        this.testImages = [];
-        document.getElementById('imagePreview').innerHTML = '';
-        document.getElementById('testFiles').value = '';
-        document.getElementById('predictBtn').disabled = true;
-        this.showResults('Upload test images to run predictions.');
+    updateTrainingProgress(detail) {
+        const progressBar = document.getElementById('progressBar');
+        if (progressBar) {
+            const progress = (detail.epoch / detail.epochs) * 100;
+            progressBar.style.width = `${progress}%`;
+        }
+        
+        this.updateStatus(`Training: Epoch ${detail.epoch}/${detail.epochs} - Loss: ${detail.loss.toFixed(4)}, Acc: ${detail.accuracy.toFixed(4)}`);
     }
 
-    resetTraining() {
-        this.trainingData = { normal: [], pneumonia: [] };
+    updateStatus(message) {
+        const statusElement = document.getElementById('status');
+        if (statusElement) {
+            statusElement.textContent = message;
+        }
+        console.log(message);
+    }
+
+    dispose() {
+        this.dataLoader.dispose();
         this.model.dispose();
-        
-        // Reset UI
-        document.getElementById('normalFiles').value = '';
-        document.getElementById('pneumoniaFiles').value = '';
-        document.getElementById('normalStats').style.display = 'none';
-        document.getElementById('pneumoniaStats').style.display = 'none';
-        document.getElementById('trainBtn').disabled = true;
-        document.getElementById('trainingProgress').style.display = 'none';
-        
-        this.showResults('Training data cleared. Upload new data to begin training.');
+        if (this.testPredictions && !this.testPredictions.isDisposed) {
+            this.testPredictions.dispose();
+        }
+        if (this.testLabels && !this.testLabels.isDisposed) {
+            this.testLabels.dispose();
+        }
     }
 }
 
-// Initialize application
+// Initialize app when DOM is loaded
 document.addEventListener('DOMContentLoaded', () => {
-    window.app = new PneumoniaApp();
+    window.app = new StockPredictionApp();
 });
