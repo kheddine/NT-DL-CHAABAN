@@ -132,10 +132,13 @@ async function prepareTrainingData(pneumoniaFiles, normalFiles) {
             throw new Error('No valid images found for training');
         }
 
-        // Shuffle the dataset - FIXED: Proper tensor conversion
+        // Shuffle the dataset - FIXED: Convert Uint32Array to regular array first
         const numSamples = xs.shape[0];
         const shuffledIndicesArray = tf.util.createShuffledIndices(numSamples);
-        const shuffledIndices = tf.tensor1d(shuffledIndicesArray, 'int32');
+        
+        // Convert Uint32Array to regular array to fix tensor1d issue
+        const regularArray = Array.from(shuffledIndicesArray);
+        const shuffledIndices = tf.tensor1d(regularArray, 'int32');
         
         const shuffledXs = tf.gather(xs, shuffledIndices);
         const shuffledYs = tf.gather(ys, shuffledIndices);
