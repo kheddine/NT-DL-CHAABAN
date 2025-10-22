@@ -133,10 +133,14 @@ async function prepareTrainingData(pneumoniaFiles, normalFiles) {
             throw new Error('No valid images found for training');
         }
 
-        // Shuffle the dataset
-        const shuffledIndices = tf.util.createShuffledIndices(xs.shape[0]);
+        // Shuffle the dataset - FIXED: Convert indices to tensor before gathering
+        const numSamples = xs.shape[0];
+        const shuffledIndices = tf.tensor1d(tf.util.createShuffledIndices(numSamples), 'int32');
         xs = tf.gather(xs, shuffledIndices);
         ys = tf.gather(ys, shuffledIndices);
+        
+        // Dispose the indices tensor
+        shuffledIndices.dispose();
 
         return { xs, ys };
     });
@@ -179,6 +183,41 @@ async function loadTestImage(file) {
         
         reader.onerror = () => reject(new Error('Failed to read test file'));
         reader.readAsDataURL(file);
+    });
+}
+
+/**
+ * Split training data into training and validation sets - FIXED VERSION
+ * @param {tf.Tensor} xs - Features tensor
+ * @param {tf.Tensor} ys - Labels tensor
+ * @param {number} valRatio - Ratio of data to use for validation (default: 0.2)
+ * @returns {Object} Split data {trainXs, trainYs, valXs, valYs}
+ */
+function splitTrainVal(xs, ys, valRatio = 0.2) {
+    return tf.tidy(() => {
+        const numSamples = xs.shape[0];
+        const numVal = Math.floor(numSamples * valRatio);
+        const numTrain = numSamples - numVal;
+        
+        // Create shuffled indices as tensor
+        const indices = tf.tensor1d(tf.util.createShuffledIndices(numSamples), 'int32');
+        
+        // Split indices into training and validation
+        const trainIndices = indices.slice(0, numTrain);
+        const valIndices = indices.slice(numTrain);
+        
+        // Split data using indices
+        const trainXs = tf.gather(xs, trainIndices);
+        const trainYs = tf.gather(ys, trainIndices);
+        const valXs = tf.gather(xs, valIndices);
+        const valYs = tf.gather(ys, valIndices);
+        
+        // Clean up indices tensors
+        indices.dispose();
+        trainIndices.dispose();
+        valIndices.dispose();
+        
+        return { trainXs, trainYs, valXs, valYs };
     });
 }
 
