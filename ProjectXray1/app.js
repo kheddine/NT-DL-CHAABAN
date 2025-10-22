@@ -333,7 +333,131 @@ async function onPredict() {
     }
 }
 
-// ... rest of the app.js functions remain the same as previous version ...
+/**
+ * Save the trained model to user's downloads
+ */
+async function onSaveModel() {
+    if (!model) {
+        alert('No model to save. Please train a model first.');
+        return;
+    }
+    
+    try {
+        await model.save('downloads://covid-xray-cnn-model');
+        console.log('Model saved successfully');
+        alert('Model saved successfully! Check your downloads folder for model.json and weights.bin');
+    } catch (error) {
+        console.error('Error saving model:', error);
+        alert('Error saving model: ' + error.message);
+    }
+}
+
+/**
+ * Load a model from user-selected files
+ */
+async function onLoadModel(event) {
+    const files = event.target.files;
+    if (!files || files.length === 0) {
+        return;
+    }
+    
+    try {
+        // Separate JSON and weights files
+        const jsonFile = Array.from(files).find(file => file.name.endsWith('.json'));
+        const weightsFile = Array.from(files).find(file => file.name.endsWith('.bin'));
+        
+        if (!jsonFile || !weightsFile) {
+            throw new Error('Please select both model.json and weights.bin files');
+        }
+        
+        // Show loading message
+        modelSummaryEl.textContent = 'Loading model...';
+        
+        // Load the model
+        model = await tf.loadLayersModel(tf.io.browserFiles([jsonFile, weightsFile]));
+        
+        // Recompile the model
+        model.compile({
+            optimizer: 'adam',
+            loss: 'binaryCrossentropy',
+            metrics: ['accuracy']
+        });
+        
+        console.log('Model loaded successfully');
+        updateModelSummary();
+        
+        alert('Model loaded successfully!');
+        
+    } catch (error) {
+        console.error('Error loading model:', error);
+        alert('Error loading model: ' + error.message);
+        modelSummaryEl.textContent = 'Error loading model';
+    }
+    
+    // Reset file input
+    event.target.value = '';
+}
+
+/**
+ * Update the model summary display
+ */
+function updateModelSummary() {
+    if (!model) {
+        modelSummaryEl.textContent = 'No model loaded. Train a new model or load an existing one.';
+        return;
+    }
+    
+    try {
+        let summary = 'Model Architecture:\n\n';
+        let totalParams = 0;
+        let trainableParams = 0;
+        
+        model.layers.forEach((layer, i) => {
+            const layerType = layer.getClassName();
+            const outputShape = JSON.stringify(layer.outputShape).slice(1, -1);
+            const params = layer.countParams();
+            
+            totalParams += params;
+            if (layer.trainable) {
+                trainableParams += params;
+            }
+            
+            summary += `${(i + 1).toString().padStart(2, ' ')}) ${layerType.padEnd(15)} ${outputShape.padEnd(20)} ${params.toString().padStart(8)} params\n`;
+        });
+        
+        summary += `\nTotal params: ${totalParams.toLocaleString()}\n`;
+        summary += `Trainable params: ${trainableParams.toLocaleString()}\n`;
+        summary += `Non-trainable params: ${(totalParams - trainableParams).toLocaleString()}`;
+        
+        modelSummaryEl.textContent = summary;
+        
+    } catch (error) {
+        console.error('Error generating model summary:', error);
+        modelSummaryEl.textContent = 'Error generating model summary';
+    }
+}
+
+/**
+ * Initialize model summary with basic information
+ */
+function initializeModelSummary() {
+    const summary = `Model Architecture (when created):
+
+ 1) conv2d          126, 126, 16      448 params
+ 2) max_pooling2d   63, 63, 16          0 params
+ 3) conv2d          61, 61, 32       4640 params
+ 4) max_pooling2d   30, 30, 32          0 params
+ 5) flatten         28800                0 params
+ 6) dense           64             1843264 params
+ 7) dropout         64                  0 params
+ 8) dense           1                   65 params
+
+Total params: 1,848,417
+Trainable params: 1,848,417
+Non-trainable params: 0`;
+    
+    modelSummaryEl.textContent = summary;
+}
 
 // Handle page unload to clean up memory
 window.addEventListener('beforeunload', () => {
