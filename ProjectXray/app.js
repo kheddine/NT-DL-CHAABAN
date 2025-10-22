@@ -1,307 +1,544 @@
-import * as tf from 'https://cdn.jsdelivr.net/npm/@tensorflow/tfjs@4.22.0/dist/tf.min.js';
-import { DataLoader } from './data-loader.js';
-import { GRUModel } from './gru.js';
+// app.js
+/**
+ * Main application controller for TensorFlow.js MNIST demo
+ * Handles UI interactions, model training, and visualization
+ */
 
-export class StockPredictionApp {
+class MNISTApp {
     constructor() {
-        this.dataLoader = new DataLoader();
-        this.model = new GRUModel();
+        this.dataLoader = new MNISTDataLoader();
+        this.model = null;
+        this.trainData = null;
+        this.testData = null;
         this.isTraining = false;
-        this.testPredictions = null;
-        this.testLabels = null;
-        this.symbols = [];
         
-        this.initializeUI();
-        this.setupEventListeners();
+        this.initializeEventListeners();
+        this.updateUI();
     }
 
-    initializeUI() {
-        // Ensure required DOM elements exist
-        if (!document.getElementById('csvFile') || !document.getElementById('trainBtn')) {
-            console.error('Required DOM elements not found');
+    /**
+     * Initialize all UI event listeners
+     */
+    initializeEventListeners() {
+        // File loading
+        document.getElementById('load-data').addEventListener('click', () => this.onLoadData());
+        document.getElementById('train').addEventListener('click', () => this.onTrain());
+        document.getElementById('evaluate').addEventListener('click', () => this.onEvaluate());
+        document.getElementById('test-five').addEventListener('click', () => this.onTestFive());
+        
+        // Model management
+        document.getElementById('save-model').addEventListener('click', () => this.onSaveDownload());
+        document.getElementById('load-model').addEventListener('click', () => this.onLoadFromFiles());
+        
+        // Utility functions
+        document.getElementById('reset').addEventListener('click', () => this.onReset());
+        document.getElementById('toggle-visor').addEventListener('click', () => this.toggleVisor());
+    }
+
+    /**
+     * Load and parse MNIST data from uploaded CSV files
+     */
+    async onLoadData() {
+        const trainFile = document.getElementById('train-csv').files[0];
+        const testFile = document.getElementById('test-csv').files[0];
+        
+        if (!trainFile || !testFile) {
+            this.showError('Please upload both train and test CSV files');
             return;
         }
-    }
 
-    setupEventListeners() {
-        // File input handler
-        document.getElementById('csvFile').addEventListener('change', (e) => {
-            this.handleFileUpload(e.target.files[0]);
-        });
-
-        // Train button handler
-        document.getElementById('trainBtn').addEventListener('click', () => {
-            this.startTraining();
-        });
-
-        // Listen for training progress
-        window.addEventListener('trainingProgress', (e) => {
-            this.updateTrainingProgress(e.detail);
-        });
-    }
-
-    async handleFileUpload(file) {
-        if (!file) return;
-        
         try {
-            this.updateStatus('Loading CSV file...');
-            await this.dataLoader.loadCSV(file);
-            this.dataLoader.createSamples();
+            this.showStatus('Loading training data...', 'data-status');
             
-            const data = this.dataLoader.getData();
-            this.symbols = data.symbols;
+            // Load training data
+            this.trainData = await this.dataLoader.loadFromFile(trainFile);
+            this.showStatus(`Training data loaded: ${this.trainData.xs.shape[0]} samples`, 'data-status');
             
-            this.updateStatus(`Data loaded: ${this.symbols.length} stocks, ${data.X_train.shape[0]} training samples, ${data.X_test.shape[0]} test samples`);
-            document.getElementById('trainBtn').disabled = false;
+            // Load test data
+            this.showStatus('Loading test data...', 'data-status');
+            this.testData = await this.dataLoader.loadFromFile(testFile);
+            this.showStatus(
+                `Data loaded - Train: ${this.trainData.xs.shape[0]}, Test: ${this.testData.xs.shape[0]} samples`, 
+                'data-status'
+            );
+            
+            // Enable training button
+            document.getElementById('train').disabled = false;
             
         } catch (error) {
-            this.updateStatus(`Error loading file: ${error.message}`);
-            console.error('File loading error:', error);
+            this.showError(`Failed to load data: ${error.message}`, 'data-status');
+            console.error('Data loading error:', error);
         }
     }
 
-    async startTraining() {
-        if (this.isTraining) return;
-        
+    /**
+     * Create and train the CNN model
+     */
+    async onTrain() {
+        if (!this.trainData) {
+            this.showError('Please load training data first');
+            return;
+        }
+
+        if (this.isTraining) {
+            this.showError('Training already in progress');
+            return;
+        }
+
         try {
             this.isTraining = true;
-            document.getElementById('trainBtn').disabled = true;
-            this.updateStatus('Building model...');
+            this.updateUI();
             
-            // Clear previous model
-            this.model.dispose();
-            this.model.buildModel();
+            // Split training data into train/validation sets
+            const { trainXs, trainYs, valXs, valYs } = this.dataLoader.splitTrainVal(
+                this.trainData.xs, 
+                this.trainData.ys, 
+                0.1
+            );
+
+            // Create CNN model
+            this.model = this.createModel();
+            this.updateModelInfo();
+
+            // Training configuration
+            const trainingConfig = {
+                epochs: 10,
+                batchSize: 128,
+                validationData: [valXs, valYs],
+                callbacks: tfvis.show.fitCallbacks(
+                    { name: 'Training Metrics' }, 
+                    ['loss', 'val_loss', 'acc', 'val_acc'], 
+                    { callbacks: ['onEpochEnd', 'onBatchEnd'] }
+                ),
+                shuffle: true
+            };
+
+            this.showStatus('Starting training...', 'training-logs');
+            const startTime = performance.now();
+
+            // Execute training
+            const history = await this.model.fit(trainXs, trainYs, trainingConfig);
             
-            const data = this.dataLoader.getData();
-            this.updateStatus('Starting training...');
+            const endTime = performance.now();
+            const duration = ((endTime - startTime) / 1000).toFixed(2);
             
-            await this.model.train(data.X_train, data.y_train, data.X_test, data.y_test, 25, 16); // Reduced for speed
-            
-            this.updateStatus('Training completed. Evaluating model...');
-            await this.evaluateModel();
-            
+            // Find best validation accuracy
+            const bestValAcc = Math.max(...history.history.val_acc);
+            this.showStatus(
+                `Training completed in ${duration}s - Best val_acc: ${(bestValAcc * 100).toFixed(2)}%`, 
+                'training-logs'
+            );
+
+            // Enable evaluation and saving
+            document.getElementById('evaluate').disabled = false;
+            document.getElementById('test-five').disabled = false;
+            document.getElementById('save-model').disabled = false;
+
+            // Clean up temporary tensors
+            tf.dispose([trainXs, trainYs, valXs, valYs]);
+
         } catch (error) {
-            this.updateStatus(`Training error: ${error.message}`);
+            this.showError(`Training failed: ${error.message}`, 'training-logs');
             console.error('Training error:', error);
         } finally {
             this.isTraining = false;
-            document.getElementById('trainBtn').disabled = false;
+            this.updateUI();
         }
     }
 
-    async evaluateModel() {
-        const data = this.dataLoader.getData();
-        
+    /**
+     * Evaluate model on test data and generate visualizations
+     */
+    async onEvaluate() {
+        if (!this.model || !this.testData) {
+            this.showError('Please train a model and load test data first');
+            return;
+        }
+
         try {
-            // Get predictions
-            this.testPredictions = await this.model.predict(data.X_test);
-            this.testLabels = data.y_test;
+            this.showStatus('Evaluating model...', 'metrics');
             
-            // Compute overall accuracy
-            const evaluation = this.model.evaluate(data.X_test, data.y_test);
-            const overallAccuracy = evaluation[1].dataSync()[0];
+            // Predict on test data in batches to avoid memory issues
+            const testXs = this.testData.xs;
+            const testYs = this.testData.ys;
+            const batchSize = 1000;
             
-            // Compute per-stock accuracy
-            const perStockAccuracy = this.model.computePerStockAccuracy(
-                this.testPredictions, this.testLabels, this.symbols
-            );
+            let predictions = [];
+            let actualLabels = [];
             
-            this.displayResults(overallAccuracy, perStockAccuracy);
-            this.createVisualizations(perStockAccuracy);
+            // Process test data in batches
+            for (let i = 0; i < testXs.shape[0]; i += batchSize) {
+                const batchXs = testXs.slice([i, 0, 0, 0], [batchSize, 28, 28, 1]);
+                const batchYs = testYs.slice([i, 0], [batchSize, 10]);
+                
+                const batchPredictions = await this.model.predict(batchXs).array();
+                const batchActual = await batchYs.argMax(1).array();
+                
+                predictions.push(...batchPredictions);
+                actualLabels.push(...batchActual);
+                
+                // Clean up batch tensors
+                tf.dispose([batchXs, batchYs]);
+            }
             
-            // Clean up
-            tf.dispose(evaluation);
+            // Calculate overall accuracy
+            const predictedLabels = predictions.map(p => p.indexOf(Math.max(...p)));
+            const correct = predictedLabels.filter((pred, i) => pred === actualLabels[i]).length;
+            const accuracy = (correct / actualLabels.length) * 100;
+            
+            this.showStatus(`Test Accuracy: ${accuracy.toFixed(2)}%`, 'metrics');
+            
+            // Generate confusion matrix
+            this.renderConfusionMatrix(actualLabels, predictedLabels);
+            
+            // Generate per-class accuracy
+            this.renderClassAccuracy(actualLabels, predictedLabels);
             
         } catch (error) {
-            this.updateStatus(`Evaluation error: ${error.message}`);
+            this.showError(`Evaluation failed: ${error.message}`, 'metrics');
             console.error('Evaluation error:', error);
         }
     }
 
-    displayResults(overallAccuracy, perStockAccuracy) {
-        const resultsDiv = document.getElementById('results');
-        if (!resultsDiv) return;
-        
-        resultsDiv.innerHTML = `
-            <h3>Model Results</h3>
-            <p><strong>Overall Test Accuracy:</strong> ${(overallAccuracy * 100).toFixed(2)}%</p>
-        `;
-        
-        // Create sorted accuracy list
-        const sortedAccuracies = Object.entries(perStockAccuracy)
-            .sort(([, accA], [, accB]) => accB - accA);
-        
-        let accuracyHTML = '<h4>Per-Stock Accuracy (Sorted)</h4><ul>';
-        sortedAccuracies.forEach(([symbol, accuracy]) => {
-            const accuracyPercent = (accuracy * 100).toFixed(2);
-            accuracyHTML += `<li>${symbol}: ${accuracyPercent}%</li>`;
-        });
-        accuracyHTML += '</ul>';
-        
-        resultsDiv.innerHTML += accuracyHTML;
+    /**
+     * Test 5 random samples and display with predictions
+     */
+    async onTestFive() {
+        if (!this.model || !this.testData) {
+            this.showError('Please train a model and load test data first');
+            return;
+        }
+
+        try {
+            // Get random batch
+            const batch = this.dataLoader.getRandomTestBatch(this.testData.xs, this.testData.ys, 5);
+            const predictions = this.model.predict(batch.xs);
+            const predictedClasses = await predictions.argMax(1).array();
+            const actualClasses = await batch.ys.argMax(1).array();
+            
+            // Display images and predictions
+            this.renderTestPreview(batch.xs, actualClasses, predictedClasses);
+            
+            // Clean up
+            tf.dispose([predictions]);
+            
+        } catch (error) {
+            this.showError(`Test preview failed: ${error.message}`);
+            console.error('Test preview error:', error);
+        }
     }
 
-    createVisualizations(perStockAccuracy) {
-        this.createAccuracyBarChart(perStockAccuracy);
-        this.createPredictionTimelines();
+    /**
+     * Save model to user's downloads
+     */
+    async onSaveDownload() {
+        if (!this.model) {
+            this.showError('No model to save');
+            return;
+        }
+
+        try {
+            await this.model.save('downloads://mnist-cnn');
+            this.showStatus('Model saved to downloads', 'training-logs');
+        } catch (error) {
+            this.showError(`Save failed: ${error.message}`);
+            console.error('Save error:', error);
+        }
     }
 
-    createAccuracyBarChart(perStockAccuracy) {
-        const canvas = document.getElementById('accuracyChart');
-        if (!canvas) return;
+    /**
+     * Load model from user-selected files
+     */
+    async onLoadFromFiles() {
+        const jsonFile = document.getElementById('upload-json').files[0];
+        const weightsFile = document.getElementById('upload-weights').files[0];
         
-        const ctx = canvas.getContext('2d');
-        
-        // Sort stocks by accuracy
-        const sortedStocks = Object.entries(perStockAccuracy)
-            .sort(([, accA], [, accB]) => accB - accA);
-        
-        const margin = { top: 40, right: 20, bottom: 60, left: 80 };
-        const width = canvas.width - margin.left - margin.right;
-        const height = canvas.height - margin.top - margin.bottom;
-        
-        ctx.clearRect(0, 0, canvas.width, canvas.height);
-        
-        // Draw title
-        ctx.fillStyle = '#333';
-        ctx.font = '16px Arial';
-        ctx.textAlign = 'center';
-        ctx.fillText('Stock Prediction Accuracy Ranking', canvas.width / 2, 20);
-        
-        // Draw bars
-        const barHeight = height / sortedStocks.length;
-        const maxAccuracy = Math.max(...Object.values(perStockAccuracy)) || 1;
-        
-        sortedStocks.forEach(([symbol, accuracy], index) => {
-            const barWidth = (accuracy / maxAccuracy) * width;
-            const y = margin.top + index * barHeight;
+        if (!jsonFile || !weightsFile) {
+            this.showError('Please select both model.json and weights.bin files');
+            return;
+        }
+
+        try {
+            this.showStatus('Loading model...', 'model-info');
             
-            // Bar color based on accuracy
-            const color = accuracy > 0.6 ? '#4CAF50' : accuracy > 0.5 ? '#FFC107' : '#F44336';
+            // Load model using browser files
+            this.model = await tf.loadLayersModel(
+                tf.io.browserFiles([jsonFile, weightsFile])
+            );
             
-            // Draw bar
-            ctx.fillStyle = color;
-            ctx.fillRect(margin.left, y, barWidth, barHeight - 5);
+            // Recompile the model
+            this.model.compile({
+                optimizer: 'adam',
+                loss: 'categoricalCrossentropy',
+                metrics: ['accuracy']
+            });
             
-            // Draw stock label
-            ctx.fillStyle = '#333';
-            ctx.font = '12px Arial';
-            ctx.textAlign = 'right';
-            ctx.fillText(symbol, margin.left - 5, y + barHeight / 2 + 4);
+            this.updateModelInfo();
+            this.showStatus('Model loaded successfully', 'model-info');
             
-            // Draw accuracy percentage
-            ctx.textAlign = 'left';
-            ctx.fillText(`${(accuracy * 100).toFixed(1)}%`, margin.left + barWidth + 5, y + barHeight / 2 + 4);
-        });
-        
-        // Draw axis labels
-        ctx.fillStyle = '#666';
-        ctx.textAlign = 'center';
-        ctx.fillText('Accuracy', canvas.width / 2, canvas.height - 10);
+            // Enable evaluation buttons if test data is available
+            if (this.testData) {
+                document.getElementById('evaluate').disabled = false;
+                document.getElementById('test-five').disabled = false;
+                document.getElementById('save-model').disabled = false;
+            }
+            
+        } catch (error) {
+            this.showError(`Model loading failed: ${error.message}`, 'model-info');
+            console.error('Model loading error:', error);
+        }
     }
 
-    createPredictionTimelines() {
-        const container = document.getElementById('timelineContainer');
-        if (!container || !this.testPredictions || !this.testLabels) return;
+    /**
+     * Reset application state
+     */
+    onReset() {
+        // Dispose tensors and models
+        if (this.model) {
+            this.model.dispose();
+            this.model = null;
+        }
         
-        container.innerHTML = '<h4>Prediction Timelines (Sample of Test Data)</h4>';
+        this.dataLoader.dispose();
+        this.trainData = null;
+        this.testData = null;
+        this.isTraining = false;
         
-        // Get a subset of test samples for visualization
-        const predData = this.testPredictions.arraySync();
-        const trueData = this.testLabels.arraySync();
+        // Clear UI
+        this.showStatus('No data loaded', 'data-status');
+        this.showStatus('Training not started', 'training-logs');
+        this.showStatus('No model loaded', 'model-info');
+        this.showStatus('No evaluation performed', 'metrics');
         
-        // Show timeline for first 3 stocks, first 20 test samples
-        const stocksToShow = this.symbols.slice(0, Math.min(3, this.symbols.length));
-        const samplesToShow = Math.min(20, predData.length);
+        document.getElementById('preview-canvases').innerHTML = '';
+        document.getElementById('preview-labels').innerHTML = '';
         
-        stocksToShow.forEach(symbol => {
-            const stockIndex = this.symbols.indexOf(symbol);
-            const timelineDiv = document.createElement('div');
-            timelineDiv.className = 'timeline';
-            timelineDiv.innerHTML = `<h5>${symbol} Predictions</h5>`;
-            
-            const canvas = document.createElement('canvas');
-            canvas.width = 800;
-            canvas.height = 100;
-            timelineDiv.appendChild(canvas);
-            container.appendChild(timelineDiv);
-            
-            this.drawStockTimeline(canvas, symbol, stockIndex, predData, trueData, samplesToShow);
-        });
+        // Reset file inputs
+        document.getElementById('train-csv').value = '';
+        document.getElementById('test-csv').value = '';
+        document.getElementById('upload-json').value = '';
+        document.getElementById('upload-weights').value = '';
+        
+        this.updateUI();
     }
 
-    drawStockTimeline(canvas, symbol, stockIndex, predData, trueData, samplesToShow) {
-        const ctx = canvas.getContext('2d');
-        const width = canvas.width;
-        const height = canvas.height;
-        const pointWidth = width / samplesToShow;
-        
-        ctx.clearRect(0, 0, width, height);
-        
-        for (let sampleIdx = 0; sampleIdx < samplesToShow; sampleIdx++) {
-            for (let day = 0; day < 3; day++) {
-                const predIdx = stockIndex * 3 + day;
-                const predicted = predData[sampleIdx][predIdx] > 0.5 ? 1 : 0;
-                const actual = trueData[sampleIdx][predIdx];
+    /**
+     * Toggle tfjs-vis visor display
+     */
+    toggleVisor() {
+        tfvis.visor().toggle();
+    }
+
+    /**
+     * Create CNN model architecture
+     * @returns {tf.Sequential} Compiled model
+     */
+    createModel() {
+        return tf.sequential({
+            layers: [
+                // First convolutional block
+                tf.layers.conv2d({
+                    inputShape: [28, 28, 1],
+                    filters: 32,
+                    kernelSize: 3,
+                    activation: 'relu',
+                    padding: 'same'
+                }),
                 
-                const x = sampleIdx * pointWidth + (day * pointWidth / 3);
-                const y = height / 2;
-                const radius = 4;
+                // Second convolutional block
+                tf.layers.conv2d({
+                    filters: 64,
+                    kernelSize: 3,
+                    activation: 'relu',
+                    padding: 'same'
+                }),
                 
-                // Color: green for correct, red for wrong
-                ctx.fillStyle = predicted === actual ? '#4CAF50' : '#F44336';
-                ctx.beginPath();
-                ctx.arc(x, y, radius, 0, 2 * Math.PI);
-                ctx.fill();
+                // Pooling and regularization
+                tf.layers.maxPooling2d({ poolSize: 2 }),
+                tf.layers.dropout({ rate: 0.25 }),
                 
-                // Draw day indicator for first sample only
-                if (sampleIdx === 0) {
-                    ctx.fillStyle = '#666';
-                    ctx.font = '8px Arial';
-                    ctx.fillText(`D${day + 1}`, x - 5, y + 15);
-                }
+                // Classification head
+                tf.layers.flatten(),
+                tf.layers.dense({ units: 128, activation: 'relu' }),
+                tf.layers.dropout({ rate: 0.5 }),
+                tf.layers.dense({ units: 10, activation: 'softmax' })
+            ]
+        });
+        
+        // Compile model
+        model.compile({
+            optimizer: 'adam',
+            loss: 'categoricalCrossentropy',
+            metrics: ['accuracy']
+        });
+        
+        return model;
+    }
+
+    /**
+     * Update model information display
+     */
+    updateModelInfo() {
+        if (!this.model) {
+            document.getElementById('model-info').innerHTML = 'No model loaded';
+            return;
+        }
+
+        let html = '<strong>Model Architecture:</strong><br>';
+        
+        this.model.layers.forEach((layer, i) => {
+            html += `${i + 1}. ${layer.name} (${layer.getClassName()})<br>`;
+        });
+        
+        // Count trainable parameters
+        const trainableCount = this.model.trainableWeights
+            .map(w => w.size)
+            .reduce((a, b) => a + b, 0);
+            
+        html += `<br><strong>Trainable parameters:</strong> ${trainableCount.toLocaleString()}`;
+        
+        document.getElementById('model-info').innerHTML = html;
+    }
+
+    /**
+     * Render confusion matrix using tfjs-vis
+     */
+    renderConfusionMatrix(actualLabels, predictedLabels) {
+        const confusionMatrix = [];
+        
+        // Initialize 10x10 matrix with zeros
+        for (let i = 0; i < 10; i++) {
+            confusionMatrix[i] = new Array(10).fill(0);
+        }
+        
+        // Populate confusion matrix
+        for (let i = 0; i < actualLabels.length; i++) {
+            const actual = actualLabels[i];
+            const predicted = predictedLabels[i];
+            confusionMatrix[actual][predicted]++;
+        }
+        
+        // Render with tfjs-vis
+        const container = { name: 'Confusion Matrix', tab: 'Evaluation' };
+        tfvis.render.confusionMatrix(container, {
+            values: confusionMatrix,
+            tickLabels: ['0', '1', '2', '3', '4', '5', '6', '7', '8', '9']
+        });
+    }
+
+    /**
+     * Render per-class accuracy chart
+     */
+    renderClassAccuracy(actualLabels, predictedLabels) {
+        const classAccuracy = new Array(10).fill(0);
+        const classCounts = new Array(10).fill(0);
+        
+        // Calculate accuracy per class
+        for (let i = 0; i < actualLabels.length; i++) {
+            const actual = actualLabels[i];
+            classCounts[actual]++;
+            if (actual === predictedLabels[i]) {
+                classAccuracy[actual]++;
             }
         }
         
-        // Draw legend
-        ctx.fillStyle = '#333';
-        ctx.font = '10px Arial';
-        ctx.fillText('● Correct', 10, 15);
-        ctx.fillStyle = '#F44336';
-        ctx.fillText('● Wrong', 80, 15);
-    }
-
-    updateTrainingProgress(detail) {
-        const progressBar = document.getElementById('progressBar');
-        if (progressBar) {
-            const progress = (detail.epoch / detail.epochs) * 100;
-            progressBar.style.width = `${progress}%`;
-        }
+        // Convert to percentages
+        const accuracyPercentages = classAccuracy.map((correct, i) => 
+            classCounts[i] > 0 ? (correct / classCounts[i]) * 100 : 0
+        );
         
-        this.updateStatus(`Training: Epoch ${detail.epoch}/${detail.epochs} - Loss: ${detail.loss.toFixed(4)}, Acc: ${detail.accuracy.toFixed(4)}`);
+        // Prepare data for bar chart
+        const accuracyData = accuracyPercentages.map((acc, i) => ({
+            index: i,
+            accuracy: acc,
+            class: i.toString()
+        }));
+        
+        // Render with tfjs-vis
+        const container = { name: 'Per-Class Accuracy', tab: 'Evaluation' };
+        tfvis.render.barchart(container, accuracyData, {
+            xLabel: 'Class',
+            yLabel: 'Accuracy (%)',
+            yAxisDomain: [0, 100]
+        });
     }
 
-    updateStatus(message) {
-        const statusElement = document.getElementById('status');
-        if (statusElement) {
-            statusElement.textContent = message;
+    /**
+     * Render test preview with images and predictions
+     */
+    renderTestPreview(images, actualClasses, predictedClasses) {
+        const canvasContainer = document.getElementById('preview-canvases');
+        const labelsContainer = document.getElementById('preview-labels');
+        
+        canvasContainer.innerHTML = '';
+        labelsContainer.innerHTML = '';
+        
+        // Process each sample
+        for (let i = 0; i < images.shape[0]; i++) {
+            const imageTensor = images.slice([i, 0, 0, 0], [1, 28, 28, 1]);
+            const actual = actualClasses[i];
+            const predicted = predictedClasses[i];
+            const isCorrect = actual === predicted;
+            
+            // Create canvas for image
+            const previewItem = document.createElement('div');
+            previewItem.className = 'preview-item';
+            
+            const canvas = document.createElement('canvas');
+            canvas.className = 'preview-canvas';
+            
+            // Draw image to canvas
+            this.dataLoader.draw28x28ToCanvas(imageTensor, canvas, 4);
+            
+            // Create label display
+            const labelDiv = document.createElement('div');
+            labelDiv.innerHTML = `Pred: ${predicted} | Actual: ${actual}`;
+            labelDiv.className = isCorrect ? 'correct' : 'wrong';
+            
+            previewItem.appendChild(canvas);
+            previewItem.appendChild(labelDiv);
+            
+            canvasContainer.appendChild(previewItem);
         }
-        console.log(message);
     }
 
-    dispose() {
-        this.dataLoader.dispose();
-        this.model.dispose();
-        if (this.testPredictions && !this.testPredictions.isDisposed) {
-            this.testPredictions.dispose();
-        }
-        if (this.testLabels && !this.testLabels.isDisposed) {
-            this.testLabels.dispose();
-        }
+    /**
+     * Update UI state based on current application status
+     */
+    updateUI() {
+        const trainBtn = document.getElementById('train');
+        trainBtn.disabled = this.isTraining || !this.trainData;
+        trainBtn.textContent = this.isTraining ? 'Training...' : 'Train';
+        
+        // Disable other buttons during training
+        const otherButtons = ['evaluate', 'test-five', 'save-model', 'load-model', 'reset'];
+        otherButtons.forEach(id => {
+            const btn = document.getElementById(id);
+            if (btn) btn.disabled = this.isTraining;
+        });
+    }
+
+    /**
+     * Show status message in specified element
+     */
+    showStatus(message, elementId = 'training-logs') {
+        const element = document.getElementById(elementId);
+        element.textContent = message;
+        element.className = 'status';
+    }
+
+    /**
+     * Show error message
+     */
+    showError(message, elementId = 'training-logs') {
+        const element = document.getElementById(elementId);
+        element.textContent = message;
+        element.className = 'status error';
+        console.error(message);
     }
 }
 
-// Initialize app when DOM is loaded
+// Initialize application when DOM is loaded
 document.addEventListener('DOMContentLoaded', () => {
-    window.app = new StockPredictionApp();
+    new MNISTApp();
 });
