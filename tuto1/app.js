@@ -1,13 +1,16 @@
-// Rock Paper Scissors Classifier - Fixed Version
+// Enhanced Rock Paper Scissors Classifier - Improved Accuracy Version
 class RockPaperScissorsClassifier {
     constructor() {
         this.model = null;
         this.isModelLoaded = false;
         this.isClassifying = false;
         this.animationId = null;
-        this.inferenceInterval = 400;
+        this.inferenceInterval = 300; // Reduced for faster response
         
         this.classNames = ['Rock 👊', 'Paper 🖐️', 'Scissors ✌️'];
+        this.predictionHistory = [];
+        this.historySize = 5; // Keep last 5 predictions for smoothing
+        
         this.initializeElements();
         this.initializeEventListeners();
         this.loadModel();
@@ -16,6 +19,8 @@ class RockPaperScissorsClassifier {
     initializeElements() {
         this.video = document.getElementById('video');
         this.canvas = document.getElementById('canvas');
+        this.processCanvas = document.createElement('canvas'); // Separate canvas for processing
+        this.processCtx = this.processCanvas.getContext('2d');
         this.ctx = this.canvas.getContext('2d');
         this.resultDiv = document.getElementById('result');
         this.confidenceDiv = document.getElementById('confidence');
@@ -23,6 +28,10 @@ class RockPaperScissorsClassifier {
         this.startBtn = document.getElementById('startBtn');
         this.classifyBtn = document.getElementById('classifyBtn');
         this.stopBtn = document.getElementById('stopBtn');
+        
+        // Set up processing canvas
+        this.processCanvas.width = 224; // Increased resolution for better accuracy
+        this.processCanvas.height = 224;
     }
 
     initializeEventListeners() {
@@ -85,7 +94,7 @@ class RockPaperScissorsClassifier {
         } catch (error) {
             console.error('Model loading error:', error);
             this.updateStatus('❌ Model error: ' + error.message);
-            await this.createDemoModel();
+            await this.createEnhancedDemoModel();
         }
     }
 
@@ -97,13 +106,12 @@ class RockPaperScissorsClassifier {
             console.log('Input shape:', this.model.inputs[0].shape);
             console.log('Output shape:', this.model.outputs[0].shape);
             
-            // Test prediction with correct input shape
             const inputShape = this.model.inputs[0].shape;
             const [batch, height, width, channels] = inputShape;
             
             const testInput = tf.zeros(inputShape);
             const testOutput = this.model.predict(testInput);
-            await testOutput.data(); // This will throw error if incompatible
+            await testOutput.data();
             
             console.log('✅ Model compatibility check passed');
             
@@ -117,15 +125,39 @@ class RockPaperScissorsClassifier {
         }
     }
 
-    async createDemoModel() {
+    async createEnhancedDemoModel() {
         try {
-            this.updateStatus('🔧 Creating demo model...');
+            this.updateStatus('🔧 Creating enhanced demo model...');
             
+            // More sophisticated demo model
             const model = tf.sequential({
                 layers: [
-                    tf.layers.flatten({inputShape: [150, 150, 3]}),
-                    tf.layers.dense({units: 64, activation: 'relu'}),
-                    tf.layers.dense({units: 3, activation: 'softmax'})
+                    tf.layers.conv2d({
+                        inputShape: [224, 224, 3],
+                        filters: 32,
+                        kernelSize: 3,
+                        activation: 'relu'
+                    }),
+                    tf.layers.maxPooling2d({ poolSize: 2 }),
+                    
+                    tf.layers.conv2d({
+                        filters: 64,
+                        kernelSize: 3,
+                        activation: 'relu'
+                    }),
+                    tf.layers.maxPooling2d({ poolSize: 2 }),
+                    
+                    tf.layers.conv2d({
+                        filters: 64,
+                        kernelSize: 3,
+                        activation: 'relu'
+                    }),
+                    tf.layers.maxPooling2d({ poolSize: 2 }),
+                    
+                    tf.layers.flatten(),
+                    tf.layers.dense({ units: 128, activation: 'relu' }),
+                    tf.layers.dropout({ rate: 0.5 }),
+                    tf.layers.dense({ units: 3, activation: 'softmax' })
                 ]
             });
             
@@ -137,8 +169,8 @@ class RockPaperScissorsClassifier {
             
             this.model = model;
             this.isModelLoaded = true;
-            this.updateStatus('⚠️ Demo model created');
-            this.updateResult('🎮 Demo mode');
+            this.updateStatus('⚠️ Enhanced demo model created');
+            this.updateResult('🎮 Demo mode - Add trained model for better accuracy');
             
         } catch (error) {
             this.updateStatus('❌ Failed to create demo model');
@@ -151,9 +183,10 @@ class RockPaperScissorsClassifier {
             
             const stream = await navigator.mediaDevices.getUserMedia({
                 video: { 
-                    width: { ideal: 640 }, 
-                    height: { ideal: 480 },
-                    facingMode: 'user' 
+                    width: { ideal: 1280 }, // Higher resolution for better quality
+                    height: { ideal: 720 },
+                    facingMode: 'user',
+                    frameRate: { ideal: 30 }
                 } 
             });
             
@@ -167,7 +200,7 @@ class RockPaperScissorsClassifier {
 
             this.startBtn.disabled = true;
             this.classifyBtn.disabled = !this.isModelLoaded;
-            this.updateStatus('✅ Camera ready!');
+            this.updateStatus('✅ Camera ready! Position hand clearly in frame');
 
         } catch (error) {
             console.error('Camera error:', error);
@@ -185,8 +218,9 @@ class RockPaperScissorsClassifier {
         this.isClassifying = true;
         this.classifyBtn.disabled = true;
         this.stopBtn.disabled = false;
+        this.predictionHistory = []; // Clear history
 
-        this.updateStatus('🔍 Classifying...');
+        this.updateStatus('🔍 Classifying... Show clear hand gesture');
         this.classifyFrame();
     }
 
@@ -194,12 +228,14 @@ class RockPaperScissorsClassifier {
         this.isClassifying = false;
         this.classifyBtn.disabled = false;
         this.stopBtn.disabled = true;
+        this.predictionHistory = [];
 
         if (this.animationId) {
             cancelAnimationFrame(this.animationId);
         }
 
         this.updateStatus('⏹️ Classification stopped');
+        this.confidenceDiv.innerHTML = '';
     }
 
     async classifyFrame() {
@@ -218,7 +254,6 @@ class RockPaperScissorsClassifier {
         try {
             const tensor = this.captureAndPreprocessFrame();
             
-            // Verify tensor shape matches model input
             const inputShape = this.model.inputs[0].shape;
             const tensorShape = tensor.shape;
             
@@ -229,7 +264,7 @@ class RockPaperScissorsClassifier {
             const predictions = await this.model.predict(tensor).data();
             tensor.dispose();
             
-            this.processPredictions(predictions);
+            this.processPredictionsWithSmoothing(predictions);
 
         } catch (error) {
             console.error('Inference error:', error);
@@ -239,54 +274,203 @@ class RockPaperScissorsClassifier {
 
     captureAndPreprocessFrame() {
         return tf.tidy(() => {
-            // Clear canvas and draw video frame
-            this.ctx.clearRect(0, 0, 150, 150);
-            this.ctx.drawImage(this.video, 0, 0, 150, 150);
+            // Use higher resolution processing canvas
+            this.processCtx.clearRect(0, 0, 224, 224);
             
-            // Get image data and convert to tensor
-            const imageData = this.ctx.getImageData(0, 0, 150, 150);
-            let tensor = tf.browser.fromPixels(imageData, 3); // 3 channels RGB
+            // Calculate aspect ratio and center the crop
+            const videoAspect = this.video.videoWidth / this.video.videoHeight;
+            const targetAspect = 224 / 224;
             
-            // Ensure correct shape and type
+            let drawWidth, drawHeight, offsetX, offsetY;
+            
+            if (videoAspect > targetAspect) {
+                // Video is wider
+                drawHeight = 224;
+                drawWidth = this.video.videoWidth * (224 / this.video.videoHeight);
+                offsetX = (224 - drawWidth) / 2;
+                offsetY = 0;
+            } else {
+                // Video is taller
+                drawWidth = 224;
+                drawHeight = this.video.videoHeight * (224 / this.video.videoWidth);
+                offsetX = 0;
+                offsetY = (224 - drawHeight) / 2;
+            }
+            
+            // Draw video frame centered and cropped
+            this.processCtx.drawImage(
+                this.video, 
+                offsetX, offsetY, drawWidth, drawHeight
+            );
+            
+            // Apply image enhancement
+            this.applyImageEnhancement();
+            
+            // Convert to tensor
+            const imageData = this.processCtx.getImageData(0, 0, 224, 224);
+            let tensor = tf.browser.fromPixels(imageData, 3);
+            
+            // Enhanced preprocessing
+            tensor = this.enhancedPreprocessing(tensor);
+            
+            return tensor.expandDims(0);
+        });
+    }
+
+    applyImageEnhancement() {
+        const imageData = this.processCtx.getImageData(0, 0, 224, 224);
+        const data = imageData.data;
+        
+        // Simple contrast enhancement
+        for (let i = 0; i < data.length; i += 4) {
+            // Increase contrast
+            data[i] = this.clamp(data[i] * 1.1);     // Red
+            data[i + 1] = this.clamp(data[i + 1] * 1.1); // Green
+            data[i + 2] = this.clamp(data[i + 2] * 1.1); // Blue
+        }
+        
+        this.processCtx.putImageData(imageData, 0, 0);
+    }
+
+    clamp(value) {
+        return Math.max(0, Math.min(255, value));
+    }
+
+    enhancedPreprocessing(tensor) {
+        return tf.tidy(() => {
+            // Convert to float and normalize
             tensor = tensor.toFloat().div(255.0);
             
-            // Add batch dimension - shape should be [1, 150, 150, 3]
-            tensor = tensor.expandDims(0);
+            // Optional: Apply additional preprocessing
+            // Uncomment if your model was trained with specific preprocessing
+            /*
+            // Standardization (if model was trained this way)
+            const mean = tensor.mean();
+            const std = tensor.std().add(tf.scalar(1e-7));
+            tensor = tensor.sub(mean).div(std);
+            */
             
             return tensor;
         });
     }
 
-    processPredictions(predictions) {
+    processPredictionsWithSmoothing(predictions) {
         if (!predictions || predictions.length !== 3) {
             console.error('Invalid predictions:', predictions);
             return;
         }
 
-        const maxConfidence = Math.max(...predictions);
-        const predictedClass = predictions.indexOf(maxConfidence);
+        // Add current prediction to history
+        this.predictionHistory.push([...predictions]);
+        
+        // Keep only the last N predictions
+        if (this.predictionHistory.length > this.historySize) {
+            this.predictionHistory.shift();
+        }
+
+        // Apply temporal smoothing - average last N predictions
+        const smoothedPredictions = this.smoothPredictions();
+        
+        const maxConfidence = Math.max(...smoothedPredictions);
+        const predictedClass = smoothedPredictions.indexOf(maxConfidence);
         const className = this.classNames[predictedClass];
         const confidence = (maxConfidence * 100).toFixed(1);
 
-        if (maxConfidence > 0.6) {
+        // Dynamic confidence threshold based on prediction stability
+        const stability = this.calculatePredictionStability();
+        const confidenceThreshold = 0.6 - (stability * 0.2); // Lower threshold if stable
+
+        if (maxConfidence > confidenceThreshold && stability > 0.3) {
             this.updateResult(`${className} - ${confidence}%`);
-            this.resultDiv.classList.add('pulse');
-            setTimeout(() => this.resultDiv.classList.remove('pulse'), 600);
+            this.showPredictionTips(className);
         } else {
-            this.updateResult('🤔 Show clearer gesture');
+            this.updateResult('🤔 Show clearer hand gesture');
+            this.showGestureTips();
         }
 
-        this.updateConfidenceBars(predictions);
+        this.updateConfidenceBars(smoothedPredictions, stability);
     }
 
-    updateConfidenceBars(predictions) {
-        let html = '<div class="confidence-title">Confidence:</div>';
+    smoothPredictions() {
+        if (this.predictionHistory.length === 0) return [0, 0, 0];
+        
+        const smoothed = [0, 0, 0];
+        const historyLength = this.predictionHistory.length;
+        
+        // Weight recent predictions more heavily
+        for (let i = 0; i < historyLength; i++) {
+            const weight = (i + 1) / historyLength; // Linear weighting
+            const predictions = this.predictionHistory[i];
+            
+            for (let j = 0; j < 3; j++) {
+                smoothed[j] += predictions[j] * weight;
+            }
+        }
+        
+        // Normalize
+        const sum = smoothed.reduce((a, b) => a + b, 0);
+        return smoothed.map(val => val / sum);
+    }
+
+    calculatePredictionStability() {
+        if (this.predictionHistory.length < 2) return 0;
+        
+        let stability = 0;
+        for (let i = 1; i < this.predictionHistory.length; i++) {
+            const current = this.predictionHistory[i];
+            const previous = this.predictionHistory[i - 1];
+            
+            // Calculate similarity between consecutive predictions
+            let similarity = 0;
+            for (let j = 0; j < 3; j++) {
+                similarity += 1 - Math.abs(current[j] - previous[j]);
+            }
+            stability += similarity / 3;
+        }
+        
+        return stability / (this.predictionHistory.length - 1);
+    }
+
+    showPredictionTips(className) {
+        const tips = {
+            'Rock 👊': '✅ Good! Keep fist tight and visible',
+            'Paper 🖐️': '✅ Good! Keep fingers straight and spread',
+            'Scissors ✌️': '✅ Good! Clear V-shape with fingers'
+        };
+        
+        // Only show tips occasionally to avoid distraction
+        if (Math.random() < 0.1) { // 10% chance
+            this.updateStatus(tips[className]);
+        }
+    }
+
+    showGestureTips() {
+        const tips = [
+            '💡 Tip: Make sure your hand fills most of the frame',
+            '💡 Tip: Use good lighting without shadows',
+            '💡 Tip: Keep background simple and uncluttered',
+            '💡 Tip: Hold gesture steady for 2-3 seconds'
+        ];
+        
+        // Rotate through tips
+        const randomTip = tips[Math.floor(Math.random() * tips.length)];
+        this.updateStatus(randomTip);
+    }
+
+    updateConfidenceBars(predictions, stability) {
+        let html = `
+            <div class="confidence-title">
+                Confidence (Stability: ${(stability * 100).toFixed(0)}%)
+            </div>
+        `;
         
         this.classNames.forEach((name, index) => {
             const confidence = (predictions[index] * 100).toFixed(1);
             const displayName = name.split(' ')[0];
+            const isTopPrediction = predictions[index] === Math.max(...predictions);
+            
             html += `
-                <div class="confidence-bar">
+                <div class="confidence-bar ${isTopPrediction ? 'top-prediction' : ''}">
                     <div class="confidence-label">
                         <span>${displayName}</span>
                         <span>${confidence}%</span>
@@ -306,7 +490,11 @@ class RockPaperScissorsClassifier {
     }
 
     updateResult(message) {
-        if (this.resultDiv) this.resultDiv.textContent = message;
+        if (this.resultDiv) {
+            this.resultDiv.textContent = message;
+            this.resultDiv.classList.add('pulse');
+            setTimeout(() => this.resultDiv.classList.remove('pulse'), 600);
+        }
     }
 
     cleanup() {
