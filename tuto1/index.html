@@ -4,83 +4,45 @@
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
     <title>Rock Paper Scissors Classifier</title>
-    <style>
-        body {
-            font-family: Arial, sans-serif;
-            max-width: 800px;
-            margin: 0 auto;
-            padding: 20px;
-            text-align: center;
-        }
-        
-        .container {
-            display: flex;
-            flex-direction: column;
-            align-items: center;
-            gap: 20px;
-        }
-        
-        #video {
-            border: 2px solid #333;
-            border-radius: 8px;
-            max-width: 100%;
-        }
-        
-        #canvas {
-            display: none;
-        }
-        
-        #result {
-            font-size: 1.5em;
-            font-weight: bold;
-            margin: 10px 0;
-            min-height: 30px;
-        }
-        
-        .confidence {
-            margin: 5px 0;
-        }
-        
-        button {
-            padding: 10px 20px;
-            font-size: 1em;
-            background-color: #007bff;
-            color: white;
-            border: none;
-            border-radius: 5px;
-            cursor: pointer;
-        }
-        
-        button:hover {
-            background-color: #0056b3;
-        }
-        
-        button:disabled {
-            background-color: #6c757d;
-            cursor: not-allowed;
-        }
-    </style>
+    <link rel="stylesheet" href="styles.css">
 </head>
 <body>
     <div class="container">
-        <h1>Rock Paper Scissors Classifier</h1>
-        
-        <div>
-            <video id="video" width="640" height="480" autoplay playsinline></video>
-            <canvas id="canvas" width="224" height="224"></canvas>
-        </div>
-        
-        <div id="result">Loading model...</div>
-        
-        <div id="confidence"></div>
-        
-        <button id="startBtn">Start Camera</button>
-        <button id="classifyBtn" disabled>Start Classification</button>
-        <button id="stopBtn" disabled>Stop Classification</button>
+        <header>
+            <h1>Rock Paper Scissors Classifier</h1>
+            <p>Show your hand to the camera to classify rock, paper, or scissors</p>
+        </header>
+
+        <main>
+            <section class="video-section">
+                <div class="video-container">
+                    <video id="video" width="640" height="480" autoplay playsinline></video>
+                    <canvas id="canvas" width="224" height="224"></canvas>
+                </div>
+            </section>
+
+            <section class="controls-section">
+                <div class="button-group">
+                    <button id="startBtn" class="btn btn-primary">Start Camera</button>
+                    <button id="classifyBtn" class="btn btn-success" disabled>Start Classification</button>
+                    <button id="stopBtn" class="btn btn-danger" disabled>Stop Classification</button>
+                </div>
+            </section>
+
+            <section class="results-section">
+                <div id="result" class="result-box">Loading model...</div>
+                <div id="confidence" class="confidence-container"></div>
+                <div id="status" class="status-box">Ready to start</div>
+            </section>
+        </main>
+
+        <footer>
+            <p>Built with TensorFlow.js</p>
+        </footer>
     </div>
 
-    <!-- Load TensorFlow.js -->
-    <script src="https://cdn.jsdelivr.net/npm/@tensorflow/tfjs@latest"></script>
+    <!-- Load TensorFlow.js from official CDN -->
+    <script src="https://cdn.jsdelivr.net/npm/@tensorflow/tfjs@4.15.0/dist/tf.min.js"></script>
     <script src="app.js"></script>
 </body>
 </html>
