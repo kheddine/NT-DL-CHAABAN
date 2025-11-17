@@ -1,59 +1,35 @@
 <!DOCTYPE html>
-<html lang="en">
+<html>
 <head>
-    <meta charset="UTF-8">
-    <meta name="viewport" content="width=device-width, initial-scale=1.0">
-    <title>Rock Paper Scissors Classifier</title>
-    <meta name="description" content="Real-time Rock Paper Scissors hand gesture classification using TensorFlow.js">
-    <link rel="stylesheet" href="styles.css">
+    <title>Model Test</title>
+    <script src="https://cdn.jsdelivr.net/npm/@tensorflow/tfjs@4.15.0/dist/tf.min.js"></script>
 </head>
 <body>
-    <div class="container">
-        <header>
-            <h1>🎯 Rock Paper Scissors Classifier</h1>
-            <p>Show your hand to the camera to classify rock, paper, or scissors in real-time</p>
-        </header>
-
-        <main>
-            <section class="video-section">
-                <div class="video-container">
-                    <video id="video" width="640" height="480" autoplay playsinline></video>
-                    <canvas id="canvas" width="150" height="150"></canvas>
-                </div>
-            </section>
-
-            <section class="controls-section">
-                <div class="button-group">
-                    <button id="startBtn" class="btn btn-primary">📷 Start Camera</button>
-                    <button id="classifyBtn" class="btn btn-success" disabled>🤖 Start Classification</button>
-                    <button id="stopBtn" class="btn btn-danger" disabled>⏹️ Stop Classification</button>
-                </div>
-            </section>
-
-            <section class="results-section">
-                <div id="result" class="result-box">Loading model...</div>
-                <div id="confidence" class="confidence-container"></div>
-                <div id="status" class="status-box">Initializing...</div>
-            </section>
-
-            <section class="instructions">
-                <h3>How to use:</h3>
-                <ol>
-                    <li>Click "Start Camera" to enable your webcam</li>
-                    <li>Click "Start Classification" to begin recognition</li>
-                    <li>Show clear rock, paper, or scissors gestures to the camera</li>
-                    <li>Ensure good lighting and clear hand visibility</li>
-                </ol>
-            </section>
-        </main>
-
-        <footer>
-            <p>Built with TensorFlow.js | Trained on Rock-Paper-Scissors dataset</p>
-        </footer>
-    </div>
-
-    <!-- Load TensorFlow.js -->
-    <script src="https://cdn.jsdelivr.net/npm/@tensorflow/tfjs@4.15.0/dist/tf.min.js"></script>
-    <script src="app.js"></script>
+    <h1>Model Test</h1>
+    <div id="status">Testing...</div>
+    <script>
+        async function testModel() {
+            try {
+                await tf.ready();
+                document.getElementById('status').textContent = 'TF.js loaded. Loading model...';
+                
+                const model = await tf.loadLayersModel('./model/model.json');
+                document.getElementById('status').textContent = 'Model loaded! Testing prediction...';
+                
+                // Test with dummy data
+                const testInput = tf.ones([1, 150, 150, 3]);
+                const prediction = model.predict(testInput);
+                const result = await prediction.data();
+                
+                document.getElementById('status').textContent = 
+                    `SUCCESS! Model works. Output: ${Array.from(result)}`;
+                
+            } catch (error) {
+                document.getElementById('status').textContent = 
+                    `ERROR: ${error.message}`;
+            }
+        }
+        testModel();
+    </script>
 </body>
 </html>
