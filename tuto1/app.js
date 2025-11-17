@@ -1,11 +1,11 @@
-// Rock Paper Scissors Classifier - TensorFlow.js
+// Rock Paper Scissors Classifier - Fixed Version
 class RockPaperScissorsClassifier {
     constructor() {
         this.model = null;
         this.isModelLoaded = false;
         this.isClassifying = false;
         this.animationId = null;
-        this.inferenceInterval = 400; // ms between inferences
+        this.inferenceInterval = 400;
         
         this.classNames = ['Rock 👊', 'Paper 🖐️', 'Scissors ✌️'];
         this.initializeElements();
@@ -14,7 +14,6 @@ class RockPaperScissorsClassifier {
     }
 
     initializeElements() {
-        // Get DOM elements
         this.video = document.getElementById('video');
         this.canvas = document.getElementById('canvas');
         this.ctx = this.canvas.getContext('2d');
@@ -27,56 +26,94 @@ class RockPaperScissorsClassifier {
     }
 
     initializeEventListeners() {
-        // Button event listeners
         this.startBtn.addEventListener('click', () => this.startCamera());
         this.classifyBtn.addEventListener('click', () => this.startClassification());
         this.stopBtn.addEventListener('click', () => this.stopClassification());
 
-        // Handle page visibility changes
         document.addEventListener('visibilitychange', () => {
-            if (document.hidden) {
-                this.stopClassification();
-            }
+            if (document.hidden) this.stopClassification();
         });
 
-        // Cleanup on page unload
         window.addEventListener('beforeunload', () => this.cleanup());
     }
 
     async loadModel() {
         try {
             this.updateStatus('🚀 Loading TensorFlow.js...');
-            this.updateResult('Initializing...');
-
-            // Wait for TensorFlow.js to be ready
+            
             await tf.ready();
             const backend = tf.getBackend();
             this.updateStatus(`✅ TensorFlow.js loaded (${backend})`);
             
-            console.log('TensorFlow.js backend:', backend);
-
-            // Load the trained model
-            this.updateStatus('📦 Loading trained model...');
-            this.model = await tf.loadLayersModel('./model/model.json');
+            console.log('Loading model from ./model/model.json');
+            
+            // Try multiple model paths
+            const modelPaths = [
+                './model/model.json',
+                'model/model.json',
+                '/model/model.json'
+            ];
+            
+            let modelLoaded = false;
+            for (const path of modelPaths) {
+                try {
+                    console.log('Trying path:', path);
+                    this.model = await tf.loadLayersModel(path);
+                    console.log('✅ Model loaded from:', path);
+                    modelLoaded = true;
+                    break;
+                } catch (pathError) {
+                    console.log('❌ Failed from:', path, pathError);
+                    continue;
+                }
+            }
+            
+            if (!modelLoaded) {
+                throw new Error('Could not load model from any path');
+            }
+            
+            // Check model compatibility
+            const compatible = await this.checkModelCompatibility();
+            if (!compatible) {
+                throw new Error('Model compatibility check failed');
+            }
             
             this.isModelLoaded = true;
-            this.updateStatus('✅ Model loaded successfully! Click "Start Camera" to begin.');
+            this.updateStatus('✅ Model loaded! Click "Start Camera"');
             this.updateResult('🎯 Ready to classify');
-            
-            console.log('Trained model loaded successfully');
-
-            // Enable classify button if camera is already running
-            if (this.video.srcObject) {
-                this.classifyBtn.disabled = false;
-            }
 
         } catch (error) {
-            console.error('Error loading model:', error);
-            this.updateStatus('❌ Error loading model: ' + error.message);
-            this.updateResult('😞 Load failed - check console');
-            
-            // Try to create a fallback demo model
+            console.error('Model loading error:', error);
+            this.updateStatus('❌ Model error: ' + error.message);
             await this.createDemoModel();
+        }
+    }
+
+    async checkModelCompatibility() {
+        if (!this.model) return false;
+        
+        try {
+            console.log('=== Model Compatibility Check ===');
+            console.log('Input shape:', this.model.inputs[0].shape);
+            console.log('Output shape:', this.model.outputs[0].shape);
+            
+            // Test prediction with correct input shape
+            const inputShape = this.model.inputs[0].shape;
+            const [batch, height, width, channels] = inputShape;
+            
+            const testInput = tf.zeros(inputShape);
+            const testOutput = this.model.predict(testInput);
+            await testOutput.data(); // This will throw error if incompatible
+            
+            console.log('✅ Model compatibility check passed');
+            
+            testInput.dispose();
+            testOutput.dispose();
+            return true;
+            
+        } catch (error) {
+            console.error('❌ Model compatibility check failed:', error);
+            return false;
         }
     }
 
@@ -84,7 +121,6 @@ class RockPaperScissorsClassifier {
         try {
             this.updateStatus('🔧 Creating demo model...');
             
-            // Simple demo model (untrained)
             const model = tf.sequential({
                 layers: [
                     tf.layers.flatten({inputShape: [150, 150, 3]}),
@@ -101,8 +137,8 @@ class RockPaperScissorsClassifier {
             
             this.model = model;
             this.isModelLoaded = true;
-            this.updateStatus('⚠️ Demo model created (not trained). Click "Start Camera".');
-            this.updateResult('🎮 Demo mode - Add trained model');
+            this.updateStatus('⚠️ Demo model created');
+            this.updateResult('🎮 Demo mode');
             
         } catch (error) {
             this.updateStatus('❌ Failed to create demo model');
@@ -113,19 +149,16 @@ class RockPaperScissorsClassifier {
         try {
             this.updateStatus('📷 Requesting camera access...');
             
-            const constraints = {
-                video: {
-                    width: { ideal: 640 },
+            const stream = await navigator.mediaDevices.getUserMedia({
+                video: { 
+                    width: { ideal: 640 }, 
                     height: { ideal: 480 },
-                    facingMode: 'user',
-                    frameRate: { ideal: 30 }
-                }
-            };
-
-            const stream = await navigator.mediaDevices.getUserMedia(constraints);
+                    facingMode: 'user' 
+                } 
+            });
+            
             this.video.srcObject = stream;
 
-            // Wait for video to be ready
             await new Promise((resolve) => {
                 this.video.onloadedmetadata = () => {
                     this.video.play().then(resolve);
@@ -134,45 +167,26 @@ class RockPaperScissorsClassifier {
 
             this.startBtn.disabled = true;
             this.classifyBtn.disabled = !this.isModelLoaded;
-            this.updateStatus('✅ Camera started! ' + 
-                (this.isModelLoaded ? 'Click "Start Classification".' : 'Waiting for model...'));
+            this.updateStatus('✅ Camera ready!');
 
         } catch (error) {
             console.error('Camera error:', error);
-            let errorMessage = '❌ Camera error: ';
-            
-            if (error.name === 'NotAllowedError') {
-                errorMessage += 'Permission denied. Please allow camera access.';
-            } else if (error.name === 'NotFoundError') {
-                errorMessage += 'No camera found. Please connect a camera.';
-            } else if (error.name === 'NotSupportedError') {
-                errorMessage += 'Browser not supported. Try Chrome or Firefox.';
-            } else {
-                errorMessage += error.message;
-            }
-            
-            this.updateStatus(errorMessage);
+            this.updateStatus('❌ Camera error: ' + error.message);
             this.startBtn.disabled = false;
         }
     }
 
     async startClassification() {
         if (!this.isModelLoaded) {
-            this.updateStatus('❌ Model not loaded yet. Please wait.');
-            return;
-        }
-
-        if (!this.video.srcObject) {
-            this.updateStatus('❌ Please start camera first.');
+            this.updateStatus('❌ Model not loaded');
             return;
         }
 
         this.isClassifying = true;
         this.classifyBtn.disabled = true;
         this.stopBtn.disabled = false;
-        this.lastInferenceTime = 0;
 
-        this.updateStatus('🔍 Classifying... Show rock, paper, or scissors!');
+        this.updateStatus('🔍 Classifying...');
         this.classifyFrame();
     }
 
@@ -183,22 +197,18 @@ class RockPaperScissorsClassifier {
 
         if (this.animationId) {
             cancelAnimationFrame(this.animationId);
-            this.animationId = null;
         }
 
-        this.updateStatus('⏹️ Classification stopped.');
-        this.confidenceDiv.innerHTML = '';
+        this.updateStatus('⏹️ Classification stopped');
     }
 
     async classifyFrame() {
         if (!this.isClassifying) return;
 
-        const now = Date.now();
-        
-        // Throttle inference to maintain performance
-        if (!this.lastInferenceTime || now - this.lastInferenceTime >= this.inferenceInterval) {
+        try {
             await this.runInference();
-            this.lastInferenceTime = now;
+        } catch (error) {
+            console.error('Classification error:', error);
         }
 
         this.animationId = requestAnimationFrame(() => this.classifyFrame());
@@ -206,79 +216,76 @@ class RockPaperScissorsClassifier {
 
     async runInference() {
         try {
-            // Capture and preprocess frame
             const tensor = this.captureAndPreprocessFrame();
             
-            // Run prediction
-            const startTime = performance.now();
+            // Verify tensor shape matches model input
+            const inputShape = this.model.inputs[0].shape;
+            const tensorShape = tensor.shape;
+            
+            if (tensorShape[1] !== inputShape[1] || tensorShape[2] !== inputShape[2]) {
+                throw new Error(`Shape mismatch: Model expects [${inputShape}], got [${tensorShape}]`);
+            }
+            
             const predictions = await this.model.predict(tensor).data();
-            const inferenceTime = performance.now() - startTime;
-            
-            // Process results
-            this.processPredictions(predictions, inferenceTime);
-            
-            // Clean up memory
             tensor.dispose();
+            
+            this.processPredictions(predictions);
 
         } catch (error) {
-            console.error('Error during inference:', error);
-            this.updateStatus('❌ Inference error');
+            console.error('Inference error:', error);
+            this.updateStatus('❌ Inference: ' + error.message);
         }
     }
 
     captureAndPreprocessFrame() {
         return tf.tidy(() => {
-            // Draw current video frame to canvas
+            // Clear canvas and draw video frame
+            this.ctx.clearRect(0, 0, 150, 150);
             this.ctx.drawImage(this.video, 0, 0, 150, 150);
             
-            // Convert to tensor and preprocess (matches training)
-            return tf.browser.fromPixels(this.canvas)
-                .resizeNearestNeighbor([150, 150])
-                .toFloat()
-                .div(255.0)
-                .expandDims(0);
+            // Get image data and convert to tensor
+            const imageData = this.ctx.getImageData(0, 0, 150, 150);
+            let tensor = tf.browser.fromPixels(imageData, 3); // 3 channels RGB
+            
+            // Ensure correct shape and type
+            tensor = tensor.toFloat().div(255.0);
+            
+            // Add batch dimension - shape should be [1, 150, 150, 3]
+            tensor = tensor.expandDims(0);
+            
+            return tensor;
         });
     }
 
-    processPredictions(predictions, inferenceTime) {
-        // Find the highest confidence prediction
-        let maxConfidence = 0;
-        let predictedClass = 0;
-        
-        for (let i = 0; i < predictions.length; i++) {
-            if (predictions[i] > maxConfidence) {
-                maxConfidence = predictions[i];
-                predictedClass = i;
-            }
+    processPredictions(predictions) {
+        if (!predictions || predictions.length !== 3) {
+            console.error('Invalid predictions:', predictions);
+            return;
         }
 
+        const maxConfidence = Math.max(...predictions);
+        const predictedClass = predictions.indexOf(maxConfidence);
         const className = this.classNames[predictedClass];
-        this.updateResults(className, predictions, inferenceTime);
-    }
+        const confidence = (maxConfidence * 100).toFixed(1);
 
-    updateResults(className, predictions, inferenceTime) {
-        const confidence = (predictions[this.classNames.indexOf(className)] * 100).toFixed(1);
-        
-        // Only show confident predictions
-        if (maxConfidence > 0.7) {
-            this.updateResult(`${className} - ${confidence}% confident`);
+        if (maxConfidence > 0.6) {
+            this.updateResult(`${className} - ${confidence}%`);
             this.resultDiv.classList.add('pulse');
             setTimeout(() => this.resultDiv.classList.remove('pulse'), 600);
         } else {
-            this.updateResult('🤔 Show clearer hand gesture');
+            this.updateResult('🤔 Show clearer gesture');
         }
 
-        // Update confidence display
         this.updateConfidenceBars(predictions);
     }
 
     updateConfidenceBars(predictions) {
-        let confidenceHTML = '<div class="confidence-title">Confidence Levels:</div>';
+        let html = '<div class="confidence-title">Confidence:</div>';
         
         this.classNames.forEach((name, index) => {
             const confidence = (predictions[index] * 100).toFixed(1);
-            const displayName = name.split(' ')[0]; // Remove emoji for display
-            confidenceHTML += `
+            const displayName = name.split(' ')[0];
+            html += `
                 <div class="confidence-bar">
                     <div class="confidence-label">
                         <span>${displayName}</span>
@@ -291,45 +298,27 @@ class RockPaperScissorsClassifier {
             `;
         });
         
-        this.confidenceDiv.innerHTML = confidenceHTML;
+        this.confidenceDiv.innerHTML = html;
     }
 
     updateStatus(message) {
-        if (this.statusDiv) {
-            this.statusDiv.textContent = message;
-        }
+        if (this.statusDiv) this.statusDiv.textContent = message;
     }
 
     updateResult(message) {
-        if (this.resultDiv) {
-            this.resultDiv.textContent = message;
-        }
+        if (this.resultDiv) this.resultDiv.textContent = message;
     }
 
     cleanup() {
-        // Stop classification
         this.stopClassification();
-        
-        // Stop camera stream
         if (this.video.srcObject) {
-            const tracks = this.video.srcObject.getTracks();
-            tracks.forEach(track => track.stop());
-            this.video.srcObject = null;
+            this.video.srcObject.getTracks().forEach(track => track.stop());
         }
-        
-        // Clean up TensorFlow.js memory
-        if (this.model) {
-            this.model.dispose();
-        }
+        if (this.model) this.model.dispose();
     }
 }
 
-// Initialize application when DOM is fully loaded
+// Initialize app
 document.addEventListener('DOMContentLoaded', () => {
     window.classifier = new RockPaperScissorsClassifier();
-});
-
-// Handle errors
-window.addEventListener('error', (event) => {
-    console.error('Global error:', event.error);
 });
