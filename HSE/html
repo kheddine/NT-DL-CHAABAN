@@ -1,0 +1,169 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>HSE Admissions Assistant</title>
+    <style>
+        /* Basic Page Setup */
+        body {
+            margin: 0;
+            padding: 0;
+            background-color: #ffffff;
+            font-family: 'Segoe UI', Tahoma, Geneva, Verdana, sans-serif;
+            height: 100vh;
+            display: flex;
+            justify-content: center;
+            align-items: center;
+        }
+
+        /* Floating Button (Bottom Left) */
+        #chat-trigger {
+            position: fixed;
+            bottom: 20px;
+            left: 20px;
+            width: 60px;
+            height: 60px;
+            background-color: #0055A4; /* HSE Blue */
+            color: white;
+            border-radius: 50%;
+            border: none;
+            cursor: pointer;
+            box-shadow: 0 4px 12px rgba(0,0,0,0.15);
+            font-size: 24px;
+            transition: transform 0.3s ease;
+            z-index: 1000;
+        }
+
+        #chat-trigger:hover {
+            transform: scale(1.1);
+        }
+
+        /* Chat Window (Hidden by default) */
+        #chat-window {
+            position: fixed;
+            bottom: 90px;
+            left: 20px;
+            width: 350px;
+            height: 450px;
+            background: white;
+            border-radius: 12px;
+            box-shadow: 0 8px 24px rgba(0,0,0,0.2);
+            display: none;
+            flex-direction: column;
+            overflow: hidden;
+            z-index: 1000;
+            border: 1px solid #eee;
+        }
+
+        /* Chat Header */
+        .chat-header {
+            background: #0055A4;
+            color: white;
+            padding: 15px;
+            font-weight: bold;
+            display: flex;
+            justify-content: space-between;
+        }
+
+        /* Messages Area */
+        #messages {
+            flex: 1;
+            padding: 15px;
+            overflow-y: auto;
+            font-size: 14px;
+            background: #f9f9f9;
+        }
+
+        /* Input Area */
+        .input-area {
+            padding: 10px;
+            border-top: 1px solid #eee;
+            display: flex;
+        }
+
+        #user-input {
+            flex: 1;
+            padding: 8px;
+            border: 1px solid #ddd;
+            border-radius: 4px;
+            outline: none;
+        }
+
+        #send-btn {
+            margin-left: 5px;
+            background: #0055A4;
+            color: white;
+            border: none;
+            padding: 8px 12px;
+            border-radius: 4px;
+            cursor: pointer;
+        }
+    </style>
+</head>
+<body>
+
+    <h1 style="color: #ccc;">HSE Portal</h1>
+
+    <button id="chat-trigger" onclick="toggleChat()">💬</button>
+
+    <div id="chat-window">
+        <div class="chat-header">
+            Admissions Bot
+            <span style="cursor:pointer" onclick="toggleChat()">×</span>
+        </div>
+        <div id="messages">
+            <p><strong>Bot:</strong> Hello! How can I help you with HSE admissions today?</p>
+        </div>
+        <div class="input-area">
+            <input type="text" id="user-input" placeholder="Type a message...">
+            <button id="send-btn" onclick="handleSend()">Send</button>
+        </div>
+    </div>
+
+    <script>
+        function toggleChat() {
+            const chat = document.getElementById('chat-window');
+            chat.style.display = (chat.style.display === 'flex') ? 'none' : 'flex';
+        }
+
+        async function handleSend() {
+            const input = document.getElementById('user-input');
+            const messages = document.getElementById('messages');
+            const text = input.value.trim();
+
+            if (!text) return;
+
+            // 1. Show User Message
+            messages.innerHTML += `<p><strong>You:</strong> ${text}</p>`;
+            input.value = '';
+            messages.scrollTop = messages.scrollHeight;
+
+            // 2. n8n Connection (Placeholder for your Webhook)
+            try {
+                // REPLACE THIS URL with your n8n Production Webhook URL
+                const response = await fetch('YOUR_N8N_WEBHOOK_URL', {
+                    method: 'POST',
+                    headers: { 'Content-Type': 'application/json' },
+                    body: JSON.stringify({ message: text })
+                });
+
+                const data = await response.json();
+                
+                // 3. Show Bot Response
+                messages.innerHTML += `<p><strong>Bot:</strong> ${data.output || "I'm processing that information..."}</p>`;
+            } catch (error) {
+                // If n8n isn't connected yet, show a status message
+                messages.innerHTML += `<p style="color:red"><em>Error: Not connected to n8n backend.</em></p>`;
+            }
+            
+            messages.scrollTop = messages.scrollHeight;
+        }
+
+        // Allow "Enter" key to send
+        document.getElementById('user-input').addEventListener('keypress', function (e) {
+            if (e.key === 'Enter') handleSend();
+        });
+    </script>
+</body>
+</html>
