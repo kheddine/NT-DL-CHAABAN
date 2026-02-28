@@ -14,25 +14,16 @@
             margin: 0;
             padding: 0;
             background-color: #ffffff;
-            font-family: 'Segoe UI', Tahoma, Geneva, Verdana, sans-serif;
+            font-family: 'Segoe UI', sans-serif;
             height: 100vh;
             display: flex;
             justify-content: center;
             align-items: center;
         }
-        h1 {
-            color: #eeeeee;
-            font-size: 3rem;
-            letter-spacing: 5px;
-            user-select: none;
-        }
+        h1 { color: #eeeeee; font-size: 3rem; letter-spacing: 5px; }
 
-        /* Moving the bot to the Bottom Left */
-        #bp-webchat-container {
-            left: 20px !important;
-            right: auto !important;
-        }
-        .bpw-floating-button {
+        /* Force the bot to the Bottom Left */
+        #bp-webchat-container, .bpw-floating-button {
             left: 20px !important;
             right: auto !important;
         }
@@ -43,10 +34,10 @@
     <h1>HSE PORTAL</h1>
 
     <script>
-        // Listen for the 'ready' event to ensure it's loaded
+        // Latest 2026 method to check if the bot is stuck
         window.botpressWebChat.onEvent(function (event) {
             if (event.type === 'LIFECYCLE.LOADED') {
-                console.log("HSE Bot Connected Successfully");
+                console.log("HSE Bot is now live.");
             }
         }, ['LIFECYCLE.LOADED']);
     </script>
