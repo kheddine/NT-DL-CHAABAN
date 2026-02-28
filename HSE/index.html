@@ -5,40 +5,34 @@
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
     <title>HSE Admissions Assistant</title>
     
-    <script src="https://cdn.botpress.cloud/desk/webchat/v4.0/inject.js" defer></script>
+    <script src="https://cdn.botpress.cloud/webchat/v2.2/shareable.js"></script>
     
-    <script src="https://files.bpcontent.cloud/2026/02/26/20/20260226204552-HV8SP4LU.js" defer></script>
+    <script src="https://files.bpcontent.cloud/2026/02/26/20/20260226204552-HV8SP4LU.js"></script>
 
     <style>
-        /* Modern Minimalist Background */
         body {
             margin: 0;
             padding: 0;
             background-color: #ffffff;
-            font-family: 'Segoe UI', sans-serif;
+            font-family: 'Segoe UI', Tahoma, Geneva, Verdana, sans-serif;
             height: 100vh;
             display: flex;
             justify-content: center;
             align-items: center;
         }
-
         h1 {
             color: #eeeeee;
             font-size: 3rem;
             letter-spacing: 5px;
-            text-transform: uppercase;
             user-select: none;
         }
 
-        /* Moving the default Botpress launcher to the Left side */
-        /* Note: Most Botpress v2 bots default to the right. 
-           This CSS ensures it stays in the bottom-left as requested. */
+        /* Moving the bot to the Bottom Left */
         #bp-webchat-container {
             left: 20px !important;
             right: auto !important;
         }
-        
-        iframe#bp-webchat {
+        .bpw-floating-button {
             left: 20px !important;
             right: auto !important;
         }
@@ -49,26 +43,12 @@
     <h1>HSE PORTAL</h1>
 
     <script>
-        // Initialization for the v4.0 inject script
-        window.botpress.on("webchat:ready", () => {
-            console.log("HSE Bot is ready!");
-        });
-
-        // This ensures the bot loads with your specific configuration
-        window.botpress.init({
-            "botId": "49165123-5810-4ed6-8326-a302859ce537",
-            "clientId": "896515a3-b530-4f8c-a516-c1c5062c6242",
-            "hostUrl": "https://cdn.botpress.cloud/desk/webchat/v4.0",
-            "messagingUrl": "https://messaging.botpress.cloud",
-            "enableConversationDeletion": true,
-            "showPoweredBy": false,
-            "className": "webchatIframe",
-            "containerId": "bp-webchat-container",
-            "layoutWidth": "400px",
-            "hideWidget": false,
-            "showCloseButton": true
-        });
+        // Listen for the 'ready' event to ensure it's loaded
+        window.botpressWebChat.onEvent(function (event) {
+            if (event.type === 'LIFECYCLE.LOADED') {
+                console.log("HSE Bot Connected Successfully");
+            }
+        }, ['LIFECYCLE.LOADED']);
     </script>
-
 </body>
 </html>
