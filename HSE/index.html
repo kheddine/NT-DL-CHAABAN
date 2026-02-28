@@ -5,9 +5,12 @@
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
     <title>HSE Admissions Assistant</title>
     
-    <script src="https://cdn.botpress.cloud/webchat/v2.2/shareable.js"></script>
+    <script src="https://cdn.botpress.cloud/desk/webchat/v4.0/inject.js" defer></script>
+    
+    <script src="https://files.bpcontent.cloud/2026/02/26/20/20260226204552-HV8SP4LU.js" defer></script>
 
     <style>
+        /* Modern Minimalist Background */
         body {
             margin: 0;
             padding: 0;
@@ -19,39 +22,25 @@
             align-items: center;
         }
 
-        h1 { color: #eeeeee; font-size: 3rem; letter-spacing: 5px; }
-
-        /* Custom Floating Button (Bottom Left) */
-        #chat-btn {
-            position: fixed;
-            bottom: 20px;
-            left: 20px;
-            width: 60px;
-            height: 60px;
-            background-color: #3276EA;
-            color: white;
-            border-radius: 50%;
-            border: none;
-            cursor: pointer;
-            box-shadow: 0 4px 12px rgba(0,0,0,0.2);
-            font-size: 24px;
-            z-index: 1001;
+        h1 {
+            color: #eeeeee;
+            font-size: 3rem;
+            letter-spacing: 5px;
+            text-transform: uppercase;
+            user-select: none;
         }
 
-        /* Container for the Botpress Webchat */
-        #webchat {
-            position: fixed;
-            bottom: 90px;
-            left: 20px;
-            width: 400px;
-            height: 600px;
-            max-height: 80vh;
-            max-width: 90vw;
-            display: none; /* Hidden by default */
-            z-index: 1000;
-            box-shadow: 0 8px 24px rgba(0,0,0,0.15);
-            border-radius: 8px;
-            overflow: hidden;
+        /* Moving the default Botpress launcher to the Left side */
+        /* Note: Most Botpress v2 bots default to the right. 
+           This CSS ensures it stays in the bottom-left as requested. */
+        #bp-webchat-container {
+            left: 20px !important;
+            right: auto !important;
+        }
+        
+        iframe#bp-webchat {
+            left: 20px !important;
+            right: auto !important;
         }
     </style>
 </head>
@@ -59,36 +48,27 @@
 
     <h1>HSE PORTAL</h1>
 
-    <button id="chat-btn" onclick="toggleChat()">💬</button>
-    
-    <div id="webchat"></div>
-
     <script>
-        // Toggle Visibility
-        function toggleChat() {
-            const chat = document.getElementById('webchat');
-            if (chat.style.display === 'none' || chat.style.display === '') {
-                chat.style.display = 'block';
-            } else {
-                chat.style.display = 'none';
-            }
-        }
+        // Initialization for the v4.0 inject script
+        window.botpress.on("webchat:ready", () => {
+            console.log("HSE Bot is ready!");
+        });
 
-        // Initialize Botpress with your specific IDs
+        // This ensures the bot loads with your specific configuration
         window.botpress.init({
             "botId": "49165123-5810-4ed6-8326-a302859ce537",
             "clientId": "896515a3-b530-4f8c-a516-c1c5062c6242",
-            "selector": "#webchat",
-            "configuration": {
-                "color": "#3276EA",
-                "variant": "solid",
-                "headerVariant": "glass",
-                "themeMode": "light",
-                "fontFamily": "inter",
-                "radius": 4,
-                "feedbackEnabled": false
-            }
+            "hostUrl": "https://cdn.botpress.cloud/desk/webchat/v4.0",
+            "messagingUrl": "https://messaging.botpress.cloud",
+            "enableConversationDeletion": true,
+            "showPoweredBy": false,
+            "className": "webchatIframe",
+            "containerId": "bp-webchat-container",
+            "layoutWidth": "400px",
+            "hideWidget": false,
+            "showCloseButton": true
         });
     </script>
+
 </body>
 </html>
