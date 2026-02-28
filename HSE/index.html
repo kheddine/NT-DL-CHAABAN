@@ -1,45 +1,66 @@
 <!DOCTYPE html>
 <html lang="en">
 <head>
+    <script src="https://cdn.botpress.cloud/desk/webchat/v4.0/inject.js" defer></script>
+    <script src="https://files.bpcontent.cloud/2026/02/26/20/20260226204552-HV8SP4LU.js" defer></script>
+</head>
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
-    <title>HSE Admissions Assistant</title>
-    
-    <script src="https://cdn.botpress.cloud/webchat/v2.2/shareable.js"></script>
-    
-    <script src="https://files.bpcontent.cloud/2026/02/26/20/20260226204552-HV8SP4LU.js"></script>
-
+    <title>HSE Admissions Portal</title>
     <style>
-        body {
+        /* Modern Minimalist Reset */
+        * {
             margin: 0;
             padding: 0;
+            box-sizing: border-box;
+        }
+
+        body {
             background-color: #ffffff;
-            font-family: 'Segoe UI', sans-serif;
             height: 100vh;
             display: flex;
+            flex-direction: column;
             justify-content: center;
             align-items: center;
+            font-family: 'Segoe UI', Roboto, Helvetica, Arial, sans-serif;
+            overflow: hidden;
         }
-        h1 { color: #eeeeee; font-size: 3rem; letter-spacing: 5px; }
 
-        /* Force the bot to the Bottom Left */
-        #bp-webchat-container, .bpw-floating-button {
-            left: 20px !important;
-            right: auto !important;
+        /* Subtle Branding */
+        .container {
+            text-align: center;
+            animation: fadeIn 1.5s ease-in;
+        }
+
+        h1 {
+            color: #f0f0f0; /* Very light grey for a clean look */
+            font-size: 4rem;
+            font-weight: 800;
+            letter-spacing: 15px;
+            text-transform: uppercase;
+            margin-bottom: 10px;
+            user-select: none;
+        }
+
+        .subtitle {
+            color: #d1d1d1;
+            font-size: 1rem;
+            letter-spacing: 3px;
+            text-transform: lowercase;
+        }
+
+        @keyframes fadeIn {
+            from { opacity: 0; transform: translateY(10px); }
+            to { opacity: 1; transform: translateY(0); }
         }
     </style>
 </head>
 <body>
 
-    <h1>HSE PORTAL</h1>
+    <div class="container">
+        <h1>HSE PORTAL</h1>
+        <div class="subtitle">admissions & research platform</div>
+    </div>
 
-    <script>
-        // Latest 2026 method to check if the bot is stuck
-        window.botpressWebChat.onEvent(function (event) {
-            if (event.type === 'LIFECYCLE.LOADED') {
-                console.log("HSE Bot is now live.");
-            }
-        }, ['LIFECYCLE.LOADED']);
-    </script>
 </body>
 </html>
