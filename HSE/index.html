@@ -3,40 +3,33 @@
 <head>
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
-    <title>HSE Admissions Assistant</title>
-    
-    <link href="https://cdn.jsdelivr.net/npm/@n8n/chat/dist/style.css" rel="stylesheet" />
-    
+    <title>HSE University</title>
+
+    <!-- Botpress Webchat -->
+    <script src="https://cdn.botpress.cloud/webchat/v4.0/inject.js" defer></script>
+    <script src="https://files.bpcontent.cloud/2026/02/26/20/20260226204552-HV8SP4LU.js" defer></script>
+
     <style>
+        * { margin: 0; padding: 0; box-sizing: border-box; }
+
         body {
-            margin: 0;
-            padding: 0;
-            background-color: #ffffff; /* Minimalist white page */
-            font-family: 'Segoe UI', sans-serif;
+            background: #ffffff;
             height: 100vh;
             display: flex;
             justify-content: center;
             align-items: center;
+            font-family: 'Georgia', serif;
         }
-        h1 { color: #eee; font-size: 3rem; }
+
+        h1 {
+            color: #003DA5;
+            font-size: 2.5rem;
+            font-weight: 700;
+            letter-spacing: 0.02em;
+        }
     </style>
 </head>
 <body>
-
-    <h1>HSE PORTAL</h1>
-
-    <script type="module">
-        import { createChat } from 'https://cdn.jsdelivr.net/npm/@n8n/chat/dist/chat.bundle.es.js';
-
-        createChat({
-            webhookUrl: 'http://localhost:5678/webhook/423cc0f7-218b-4691-9140-a36fc740bb79/chat',
-            mode: 'window', // This creates the "pop-out" bubble
-            showWelcomeScreen: true,
-            title: 'HSE Admissions Bot',
-            subtitle: 'Ask about Moscow campus programs',
-            mainColor: '#0055A4', // HSE Blue
-            launcherColor: '#0055A4'
-        });
-    </script>
+    <h1>HSE University</h1>
 </body>
 </html>
